@@ -1,0 +1,114 @@
+from urllib.parse import quote
+
+from django.conf import settings
+from django.utils import timezone
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError
+
+from custom_account.models import UserModel
+from infrastructure.email_service import get_email_service, render_email_template
+
+
+
+token_generator = PasswordResetTokenGenerator()
+
+# password reset flow
+def reset_password_request(email: str) -> None:
+    """
+    Generate a reset token and trigger email sending.
+    """
+    try:
+        user = UserModel.objects.get(email=email)
+    except UserModel.DoesNotExist:
+        raise ValueError("User not found")
+
+    token = token_generator.make_token(user)
+    frontend_base = (settings.FRONTEND_URL or "").rstrip("/") or "http://localhost:5173"
+    reset_link = f"{frontend_base}/auth/reset-password?email={quote(user.email)}&token={quote(token)}"
+
+    # Log link for testing (remove in production)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔗 Password reset link for {email}: {reset_link}")
+    print(f"\n{'='*80}\n🔗 PASSWORD RESET LINK:\n{reset_link}\n{'='*80}\n")
+
+    try:
+        email_service = get_email_service()
+        brand = getattr(settings, 'SITE_NAME', 'SunEdu')
+        support_email = getattr(
+            settings, 'SUPPORT_EMAIL', getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@sunedu.vn')
+        )
+        subject = "SunEdu - Đặt lại mật khẩu"
+        message = (
+            f"Xin chào {user.username or user.email},\n\n"
+            f"Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản {brand}.\n"
+            f"Nhấn vào liên kết để đặt lại mật khẩu: {reset_link}\n\n"
+            "Nếu bạn không yêu cầu, hãy bỏ qua email này."
+        )
+        html_body = render_email_template(
+            'emails/gmail_base.html',
+            {
+                'subject': subject,
+                'brand': brand,
+                'title': "Đặt lại mật khẩu",
+                'salutation': f"Xin chào {user.username or user.email},",
+                'intro': f"Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản {brand}.",
+                'body_lines': [
+                    "Nhấn vào nút bên dưới để tạo mật khẩu mới.",
+                    "Liên kết chỉ có hiệu lực trong thời gian ngắn để bảo vệ tài khoản của bạn.",
+                ],
+                'cta_url': reset_link,
+                'cta_label': "Đặt lại mật khẩu",
+                'footer_note': "Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email hoặc đổi mật khẩu ngay.",
+                'support_email': support_email,
+                'preheader': "Liên kết đặt lại mật khẩu từ SunEdu.",
+            },
+        )
+        email_service.send(
+            to=email,
+            subject=subject,
+            body=message,
+            html_body=html_body,
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'no-reply@example.com'),
+        )
+        return True
+    except Exception as e:
+        # Log the actual error for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to send password reset email to {email}: {str(e)}")
+        raise  # Re-raise to let caller handle it
+
+
+def reset_password_confirm(email: str, token: str, new_password: str) -> bool:
+    try:
+        user = UserModel.objects.get(email=email)
+    except UserModel.DoesNotExist:
+        return False
+
+    # Verify token properly
+    if not default_token_generator.check_token(user, token):
+        return False
+
+    user.set_password(new_password)
+    user.save()
+    return True
+
+
+def authenticate_user(username_or_email: str, password: str) -> UserModel:
+    """
+    Authenticate a user by username or email and password.
+    Raises ValidationError if authentication fails.
+    Returns the authenticated User object.
+    """
+    user = UserModel.objects.filter(username=username_or_email).first() or \
+            UserModel.objects.filter(email=username_or_email).first()
+    if (
+        user is None
+        or not user.check_password(password)
+        or not user.is_active
+        or (user.lockout_until and user.lockout_until > timezone.now())
+    ):
+        raise ValidationError("No active account found with the given credentials")
+    return user

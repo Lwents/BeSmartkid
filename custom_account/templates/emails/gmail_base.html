@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ subject|default:title|default:brand }}</title>
+  <style>
+    @media (max-width: 600px) {
+      .wrapper { padding: 16px !important; }
+      .card { padding: 24px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0; padding:0; background:#f6f7fb; font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif; color:#0f172a;">
+  <span style="display:none !important; visibility:hidden; opacity:0; height:0; width:0; overflow:hidden;">
+    {{ preheader|default:"" }}
+  </span>
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;">
+          <tr>
+            <td style="padding:0 0 8px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-radius:18px 18px 12px 12px; overflow:hidden;">
+                <tr>
+                  <td style="background:linear-gradient(135deg,#667eea,#764ba2); padding:16px 20px; color:#ffffff;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="font-weight:800; font-size:16px; letter-spacing:0.02em;">
+                          {{ brand|default:"SunEdu" }}
+                        </td>
+                        <td align="right" style="font-size:12px; color:rgba(255,255,255,0.9);">
+                          {{ footer_brand|default:"Nền tảng học tập số" }}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="wrapper" style="padding:0 0 12px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff; border-radius:12px 12px 16px 16px; border:1px solid #e5e7eb; box-shadow:0 18px 38px rgba(67,56,202,0.12);">
+                <tr>
+                  <td class="card" style="padding:32px;">
+                    <p style="margin:0 0 10px; font-size:22px; font-weight:800; letter-spacing:-0.01em; color:#0f172a;">
+                      {{ title|default:"Thông báo" }}
+                    </p>
+                    {% if salutation %}
+                      <p style="margin:0 0 12px; font-size:15px; color:#1f2937; line-height:1.6;">
+                        {{ salutation }}
+                      </p>
+                    {% endif %}
+                    {% if intro %}
+                      <p style="margin:0 0 12px; font-size:15px; color:#1f2937; line-height:1.6;">
+                        {{ intro }}
+                      </p>
+                    {% endif %}
+                    {% if body_lines %}
+                      {% for line in body_lines %}
+                        <p style="margin:0 0 12px; font-size:15px; color:#334155; line-height:1.7;">
+                          {{ line }}
+                        </p>
+                      {% endfor %}
+                    {% endif %}
+                    {% if highlight_text %}
+                      <div style="margin:18px 0; padding:16px; border-radius:14px; border:1px dashed #764ba2; background:linear-gradient(135deg,rgba(102,126,234,0.12),rgba(118,75,162,0.10)); text-align:center;">
+                        <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.14em; color:#6b21a8; font-weight:800; margin-bottom:6px;">
+                          {{ highlight_label|default:"Mã của bạn" }}
+                        </div>
+                        <div style="font-size:30px; letter-spacing:0.24em; font-weight:900; color:#0f172a;">
+                          {{ highlight_text }}
+                        </div>
+                      </div>
+                    {% endif %}
+                    {% if cta_url %}
+                      <div style="margin:22px 0 10px;">
+                        <a href="{{ cta_url }}" style="display:inline-block; background:linear-gradient(135deg,#667eea,#764ba2); color:#ffffff; padding:14px 20px; border-radius:14px; text-decoration:none; font-weight:800; font-size:15px; letter-spacing:0.01em; box-shadow:0 12px 28px rgba(76,29,149,0.28);">
+                          {{ cta_label|default:"Xem chi tiết" }}
+                        </a>
+                      </div>
+                    {% endif %}
+                    {% if footer_note %}
+                      <p style="margin:12px 0 0; font-size:13px; color:#6b7280; line-height:1.6;">
+                        {{ footer_note }}
+                      </p>
+                    {% endif %}
+                    {% if support_email %}
+                      <p style="margin:8px 0 0; font-size:13px; color:#6b7280; line-height:1.6;">
+                        Cần hỗ trợ? Liên hệ <a href="mailto:{{ support_email }}" style="color:#764ba2; text-decoration:none; font-weight:600;">{{ support_email }}</a>.
+                      </p>
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center">
+              <p style="margin:6px 0 0; font-size:12px; color:#a1a1aa;">
+                {{ brand|default:"SunEdu" }} • {{ footer_brand|default:"Nền tảng học tập số" }}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
