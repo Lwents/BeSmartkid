@@ -94,7 +94,6 @@ INSTALLED_APPS = [
     'activities',
     'assignments',
     'progress',
-    'media',
     'gamification',
     'ai_personalization',
     'events',
