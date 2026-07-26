@@ -183,13 +183,18 @@ class CourseListCreateView(generics.ListCreateAPIView):
         except Exception as e:
             import traceback
             from content.services.exceptions import DomainValidationError
-            
+            from rest_framework.exceptions import ValidationError as DRFValidationError
+
+            # Lỗi validation của serializer (thiếu title, sai kiểu...) -> để DRF trả 400 chuẩn
+            if isinstance(e, DRFValidationError):
+                raise
+
             error_detail = str(e)
-            
+
             # Nếu là lỗi validation (ví dụ: tên khóa học trùng), trả về 400
             if isinstance(e, DomainValidationError):
                 return Response(
-                    {"detail": error_detail}, 
+                    {"detail": error_detail},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             

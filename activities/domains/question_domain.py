@@ -216,4 +216,6 @@ class QuestionDomain:
             return {"score": score, "correct": correct_flag, "explanation": f"{correct_count}/{total} correct."}
 
         else:
-            raise NotImplementedError(f"Scoring not implemented for question type {qtype}")
+            # Type không hỗ trợ: chấm 0 điểm thay vì raise -> tránh 500 khi client gửi type lạ
+            return {"score": 0.0, "correct": False,
+                    "explanation": f"Unsupported question type '{qtype}', scored as 0."}

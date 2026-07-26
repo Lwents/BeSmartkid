@@ -286,6 +286,34 @@ class StudentExamStartView(APIView):
         return Response(attempt_data, status=status.HTTP_201_CREATED)
 
 
+def _summary_to_result(pk, attempt_id, summary):
+    """Map attempt summary (score/questions keys) sang format app mong đợi
+    (totalScore/maxScore/correctCount/totalCount/passed/detail)."""
+    questions = summary.get('questions', []) or []
+    total_score = sum(float(q.get('answer_score') or 0) for q in questions)
+    max_score = sum(float(q.get('points') or 0) for q in questions)
+    correct_count = sum(1 for q in questions if q.get('correct'))
+    total_count = len(questions)
+    percent = float(summary.get('score') or 0)
+    pass_score = 50.0
+    try:
+        exercise = Exercise.objects.select_related('settings').get(id=pk)
+        pass_score = float(exercise.settings.pass_score)
+    except Exception:
+        pass
+    return {
+        'attemptId': str(attempt_id),
+        'examId': str(pk),
+        'totalScore': total_score,
+        'maxScore': max_score,
+        'score': percent,
+        'correctCount': correct_count,
+        'totalCount': total_count,
+        'passed': percent >= pass_score,
+        'detail': questions,
+    }
+
+
 class StudentExamSubmitView(APIView):
     """
     POST /api/student/exams/{id}/submit/
@@ -323,17 +351,7 @@ class StudentExamSubmitView(APIView):
             )
         
         # Convert summary to response format
-        result_data = {
-            'attemptId': str(attempt_id),
-            'examId': str(pk),
-            'totalScore': summary.get('total_score', 0),
-            'maxScore': summary.get('max_score', 0),
-            'correctCount': summary.get('correct_count', 0),
-            'totalCount': summary.get('total_count', 0),
-            'passed': summary.get('passed', False),
-            'detail': summary.get('detail', []),
-        }
-        
+        result_data = _summary_to_result(pk, attempt_id, summary)
         return Response(result_data, status=status.HTTP_200_OK)
 
 
@@ -355,17 +373,7 @@ class StudentExamResultView(APIView):
             )
         
         # Convert to response format
-        result_data = {
-            'attemptId': str(attempt_id),
-            'examId': str(pk),
-            'totalScore': summary.get('total_score', 0),
-            'maxScore': summary.get('max_score', 0),
-            'correctCount': summary.get('correct_count', 0),
-            'totalCount': summary.get('total_count', 0),
-            'passed': summary.get('passed', False),
-            'detail': summary.get('detail', []),
-        }
-        
+        result_data = _summary_to_result(pk, attempt_id, summary)
         return Response(result_data, status=status.HTTP_200_OK)
 
 
