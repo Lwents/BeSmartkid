@@ -39,7 +39,8 @@ jobs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            root@160.250.181.242 deploy
+            root@160.250.181.242 \
+            'cd /opt/smartkid-backend && git fetch origin && git reset --hard origin/main && deploy'
 
       - name: Verify public endpoint
         run: |
