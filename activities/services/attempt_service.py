@@ -119,10 +119,15 @@ def submit_answer(attempt_id: str, question_id: str, answer_payload: Dict[str, A
         raise PermissionDenied("Not allowed to submit answer for this attempt")
 
     # check status
-    if attempt.status != attempt.STATUS_IN_PROGRESS:
+    # ExerciseAttempt không có cột status nên domain luôn đọc 'in_progress';
+    # finished_at là dữ liệu thật đã lưu -> dùng nó để chặn nộp lại lượt đã xong.
+    if att.finished_at is not None or attempt.status != attempt.STATUS_IN_PROGRESS:
         raise ValidationError("Attempt already finished")
 
-    question = QuestionDomain.from_model(QuestionModel.objects.get(id=question_id))
+    try:
+        question = QuestionDomain.from_model(QuestionModel.objects.get(id=question_id))
+    except QuestionModel.DoesNotExist:
+        raise NotFoundError(f"Question {question_id} not found")
     answer_domain = attempt.add_or_update_answer(question, answer_payload)
 
     ExerciseAnswerModel.objects.update_or_create(
@@ -143,6 +148,10 @@ def finalize_attempt(attempt_id: str, actor_user=None, force=False) -> Dict[str,
         att = ExerciseAttemptModel.objects.get(id=attempt_id)
     except ExerciseAttemptModel.DoesNotExist:
         raise NotFoundError("Attempt not found")
+
+    # Chặn nộp lại lượt đã kết thúc (trừ khi staff dùng force) để điểm không bị ghi đè.
+    if att.finished_at is not None and not force:
+        raise ValidationError("Attempt already finished")
 
     exercise = ExerciseDomain.from_model(att.exercise)
     attempt = ExerciseAttemptDomain.from_model(att, exercise_domain=exercise)

@@ -1,3 +1,4 @@
+import re
 from django.db.models import Count, Q, Avg, Max
 from rest_framework import status
 from rest_framework.views import APIView
@@ -181,24 +182,42 @@ class StudentExamDetailView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Lấy cấu hình thật của đề (thời gian, điểm đạt, trộn câu hỏi...) thay vì
+        # hằng số mặc định - trước đây đề 15 phút vẫn hiện 30 phút / điểm đạt 12.
+        exercise = Exercise.objects.select_related('settings').prefetch_related(
+            'questions__choices').get(id=pk)
+        settings_obj = getattr(exercise, 'settings', None)
+        duration_sec = getattr(settings_obj, 'time_limit_seconds', None) or 1800
+        pass_score = getattr(settings_obj, 'pass_score', None)
+        pass_score = pass_score if pass_score is not None else 50.0
+        shuffle_questions = bool(getattr(settings_obj, 'shuffle_questions', True))
+        shuffle_choices = bool(getattr(settings_obj, 'shuffle_choices', True))
+
+        # Khối lớp suy ra từ khóa học gắn với đề.
+        level = ''
+        course_id = getattr(settings_obj, 'course_id', None) if settings_obj else None
+        if course_id:
+            course = Course.objects.filter(id=course_id).only('grade').first()
+            digits = re.sub(r'\D', '', str(getattr(course, 'grade', '') or '')) if course else ''
+            if digits:
+                level = 'Khối 1–2' if int(digits) <= 2 else 'Khối 3–5'
+
         # Convert domain to response format
         exercise_data = {
             'id': str(exercise_domain.id),
             'title': exercise_domain.title,
-            'level': 'Khối 1–2',  # Default, should be in domain
-            'durationSec': 1800,  # Default
-            'passScore': 12,  # Default
+            'level': level,
+            'durationSec': duration_sec,
+            'passScore': pass_score,
             'questionsCount': len(exercise_domain.questions) if hasattr(exercise_domain, 'questions') else 0,
             'status': 'published' if exercise_domain.published else 'draft',
             'updatedAt': None,
             'description': getattr(exercise_domain, 'description', ''),
-            'shuffleQuestions': True,  # Default
-            'shuffleChoices': True,  # Default
+            'shuffleQuestions': shuffle_questions,
+            'shuffleChoices': shuffle_choices,
             'questions': [],
         }
-        
-        # Get questions with choices
-        exercise = Exercise.objects.prefetch_related('questions__choices').get(id=pk)
+
         questions_data = []
         
         for question in exercise.questions.all():

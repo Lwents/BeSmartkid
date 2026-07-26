@@ -309,6 +309,9 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
         _auto_transcribe_if_needed(instance)
         
         # Return updated model data
+        # update_lesson() sửa trên bản ghi khác nên `instance` trong bộ nhớ đã cũ
+        # (vd content_type vẫn là giá trị trước khi cập nhật) -> đọc lại từ DB.
+        instance.refresh_from_db()
         from content.domains.lesson_domain import LessonDomain
         lesson_domain = LessonDomain.from_model(instance)
         result = LessonSerializer.from_domain(lesson_domain)
