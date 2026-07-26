@@ -136,7 +136,9 @@ class AdminDashboardView(APIView):
 
         recent = []
         for user in qs[:15]:
-            display_name = getattr(user.profile, 'display_name', None)
+            # getattr trực tiếp trên user: user không có profile sẽ trả None thay vì raise
+            profile = getattr(user, 'profile', None)
+            display_name = getattr(profile, 'display_name', None) if profile else None
             name = display_name or user.email or user.username
             recent.append({
                 'id': str(user.id),
