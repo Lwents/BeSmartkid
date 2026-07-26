@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from teacher_api.permissions import IsTeacher
 from content.models import Course, Enrollment, Lesson
-from activities.models import Exercise
+from activities.models import Exercise, ExerciseAttempt
 from school.models import ClassroomModel
 from custom_account.models import UserModel
 
@@ -61,11 +61,27 @@ class TeacherDashboardView(APIView):
             for course in courses_with_stats
         ]
         
+        # Bài kiểm tra của giáo viên: đề độc lập gắn khóa của mình, hoặc đề trong
+        # bài học của mình. Trước đây dashboard không trả số này nên app luôn hiện 0.
+        course_ids = list(teacher_courses.values_list('id', flat=True))
+        exams_query = Exercise.objects.filter(
+            Q(lesson__module__course__owner=teacher)
+            | Q(settings__course_id__in=course_ids)
+        ).distinct()
+        total_exams = exams_query.count()
+
+        # Lượt học sinh đã nộp bài trên các đề đó.
+        total_attempts = ExerciseAttempt.objects.filter(
+            exercise__in=exams_query, finished_at__isnull=False
+        ).count()
+
         return Response({
             'stats': {
                 'courses': total_courses,
                 'students': total_students,
-                'assignments': total_lessons
+                'assignments': total_lessons,
+                'exams': total_exams,
+                'attempts': total_attempts,
             },
             'myCourses': my_courses
         }, status=status.HTTP_200_OK)

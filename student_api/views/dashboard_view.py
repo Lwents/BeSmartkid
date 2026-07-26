@@ -1,3 +1,4 @@
+import re
 from django.db.models import Count, Q, F, Case, When, IntegerField
 from rest_framework import status
 from rest_framework.views import APIView
@@ -81,25 +82,50 @@ class StudentDashboardView(APIView):
             reverse=True
         )[:6]
         
-        # Get preview exams (all exercises, limit to 2)
-        # Note: Exercise model doesn't have published field, so we show all
-        exercises = Exercise.objects.all().order_by('-id')[:2]
-        
+        # Preview exams: phải cùng bộ lọc với /student/exams/ để trang chủ không
+        # đếm đề nháp hoặc đề của khóa học sinh chưa tham gia.
+        enrolled_course_ids = {str(item['id']) for item in courses_data}
+        enrolled_grades = {
+            re.sub(r'\D', '', str(item.get('grade') or '')) or None
+            for item in courses_data
+        }
+        enrolled_grades.discard(None)
+
+        exercises = (
+            Exercise.objects
+            .filter(published=True, lesson__isnull=True)
+            .select_related('settings')
+            .order_by('-id')
+        )
+
         preview_exams = []
         for exercise in exercises:
-            # Get grade/level from exercise metadata or settings
-            grade = 'Khối 1–2'  # Default
+            settings_obj = getattr(exercise, 'settings', None)
+            course_id = str(getattr(settings_obj, 'course_id', '') or '')
+            if not course_id or course_id not in enrolled_course_ids:
+                continue
+
             duration_sec = 1800  # Default 30 minutes
             pass_score = 12  # Default
-            
-            # Try to get from settings if exists
             try:
-                if hasattr(exercise, 'settings') and exercise.settings:
-                    duration_sec = exercise.settings.time_limit_seconds or duration_sec
-                    pass_score = exercise.settings.pass_score or pass_score
-            except:
+                if settings_obj:
+                    duration_sec = settings_obj.time_limit_seconds or duration_sec
+                    pass_score = settings_obj.pass_score or pass_score
+            except Exception:
                 pass
-            
+
+            course_grade = next(
+                (item.get('grade') for item in courses_data if str(item['id']) == course_id),
+                '',
+            )
+            digits = re.sub(r'\D', '', str(course_grade or ''))
+            if digits and int(digits) <= 2:
+                grade = 'Khối 1–2'
+            elif digits:
+                grade = 'Khối 3–5'
+            else:
+                grade = course_grade or ''
+
             preview_exams.append({
                 'id': str(exercise.id),
                 'title': exercise.title,
@@ -107,6 +133,8 @@ class StudentDashboardView(APIView):
                 'duration': duration_sec,
                 'pass': pass_score,
             })
+            if len(preview_exams) >= 5:
+                break
         
         return Response({
             'resumeCourse': resume_course,

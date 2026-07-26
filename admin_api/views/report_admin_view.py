@@ -13,7 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from admin_api.permissions import IsAdmin
 from payments.models import Payment
 from content.models import Course, Enrollment, LessonProgress, Subject
-from activities.models import TeacherFeedback
+from activities.models import TeacherFeedback, ExerciseAttempt
 from custom_account.models import UserModel
 from progress.models import UserProgress, UserLessonProgress
 from ai_personalization.models import LearningEvent
@@ -349,36 +349,59 @@ class AdminLearningReportView(APIView):
 
         if report_type == 'kpis':
             # Calculate average completion percentage
+            # Ưu tiên UserProgress; nếu trống thì tính từ LessonProgress.completed
+            # (dữ liệu thật mà app ghi khi học sinh hoàn thành bài học)
             all_progress = UserProgress.objects.all()
             if all_progress.exists():
                 avg_completion = all_progress.aggregate(avg=Avg('progress_percentage'))['avg'] or 0
             else:
-                avg_completion = 0
-            
+                total_lesson_progress = LessonProgress.objects.count()
+                if total_lesson_progress:
+                    completed_count = LessonProgress.objects.filter(completed=True).count()
+                    avg_completion = completed_count * 100.0 / total_lesson_progress
+                else:
+                    avg_completion = 0
+
             # Calculate average exercise score
+            # Ưu tiên LessonProgress.exercise_score; nếu trống thì lấy điểm thật
+            # từ các lượt làm bài (ExerciseAttempt.score, thang 100)
             all_lesson_progress = LessonProgress.objects.filter(exercise_score__isnull=False)
             if all_lesson_progress.exists():
                 avg_score = all_lesson_progress.aggregate(avg=Avg('exercise_score'))['avg'] or 0
             else:
-                avg_score = 0
-            
+                avg_score = ExerciseAttempt.objects.filter(
+                    score__isnull=False
+                ).aggregate(avg=Avg('score'))['avg'] or 0
+
             # Calculate average time spent from LearningEvent
             # Get all learning events with time_spent in detail
             avg_time_spent = 0
             try:
                 # Get unique users who have learning events
                 unique_users = LearningEvent.objects.values('user').distinct().count()
-                
+
                 if unique_users > 0:
                     # Sum all time_spent from events (more efficient)
                     total_time = 0
                     for event in LearningEvent.objects.only('detail').iterator():
                         if event.detail and isinstance(event.detail, dict):
                             total_time += event.detail.get('time_spent', 0)
-                    
+
                     # Convert seconds to minutes and calculate average per user
                     if total_time > 0:
                         avg_time_spent = round(total_time / unique_users / 60, 0)
+                if not avg_time_spent:
+                    # Fallback: thời gian làm bài (time_taken, giây) ghi trong attempt
+                    total_time = 0
+                    users = set()
+                    for attempt in ExerciseAttempt.objects.only('metadata', 'student').iterator():
+                        meta = attempt.metadata or {}
+                        seconds = meta.get('time_taken', 0) if isinstance(meta, dict) else 0
+                        if seconds:
+                            total_time += seconds
+                            users.add(attempt.student_id)
+                    if total_time and users:
+                        avg_time_spent = round(total_time / len(users) / 60, 1)
             except Exception:
                 avg_time_spent = 0
             

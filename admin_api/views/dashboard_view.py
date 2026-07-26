@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from django.core.cache import cache
 from django.db.models import Count, Q
@@ -110,6 +111,38 @@ class AdminDashboardView(APIView):
                 disk = psutil.disk_usage('/').percent
             except Exception:
                 cpu = ram = disk = None
+
+        # Container không cài psutil -> đọc trực tiếp từ /proc như endpoint
+        # /admin/system/health/, nếu không thẻ "Sức khỏe hệ thống" luôn hiện 0%.
+        if cpu is None:
+            try:
+                with open('/proc/loadavg', 'r') as handle:
+                    cpu = min(float(handle.read().split()[0]) * 25, 100)
+            except Exception:
+                cpu = None
+        if ram is None:
+            try:
+                info = {}
+                with open('/proc/meminfo', 'r') as handle:
+                    for line in handle:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            info[parts[0].rstrip(':')] = int(parts[1])
+                total = info.get('MemTotal', 0)
+                available = info.get('MemAvailable', info.get('MemFree', 0))
+                if total:
+                    ram = round((total - available) / total * 100, 2)
+            except Exception:
+                ram = None
+        if disk is None:
+            try:
+                stats = os.statvfs('/')
+                total_blocks = stats.f_blocks
+                if total_blocks:
+                    used = total_blocks - stats.f_bfree
+                    disk = round(used / total_blocks * 100, 2)
+            except Exception:
+                disk = None
 
         backup_entries = cache.get('system_backups', []) or []
         latest_backup = backup_entries[0] if backup_entries else None
