@@ -69,9 +69,15 @@ def serialize_reply(rep: LessonQuestionReply, user=None, request=None):
 def serialize_question(q: LessonQuestion, user=None, request=None):
     profile = getattr(q.student, "profile", None)
     gender = getattr(profile, "gender", None) if profile else None
+    lesson = q.lesson
+    module = getattr(lesson, "module", None) if lesson else None
+    course = getattr(module, "course", None) if module else None
     return {
         "id": str(q.id),
         "lesson_id": str(q.lesson_id),
+        "lesson_title": lesson.title if lesson else "",
+        "course_id": str(course.id) if course else None,
+        "course_title": course.title if course else "",
         "student_id": q.student_id,
         "student": q.student.username,
         "avatar": avatar_for(q.student, request),
@@ -93,7 +99,7 @@ class TeacherLessonQuestionView(APIView):
     def get(self, request):
         lesson_id = request.query_params.get("lesson_id")
         qs = LessonQuestion.objects.all().select_related(
-            "student", "student__profile", "lesson"
+            "student", "student__profile", "lesson", "lesson__module", "lesson__module__course"
         ).prefetch_related("replies__user", "replies__user__profile")
         if lesson_id:
             qs = qs.filter(lesson_id=lesson_id)
