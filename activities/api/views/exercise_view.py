@@ -4,7 +4,7 @@ from rest_framework import status, permissions, generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.request import Request
-from rest_framework.parsers import JSONParser
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 
 # Import your serializers and services
 from activities.serializers import (
@@ -210,17 +210,48 @@ class ExerciseDetailView(APIView):
 class GenerateQuestionsAIView(APIView):
     """
     POST /api/activities/ai/generate-questions/
-    Body: {title, level, description, count, hint, model}
-    Calls OpenRouter from backend using OPENROUTER_API_KEY env.
+    Multipart body: file (PDF/DOCX/TXT), count, level
+    Đọc nội dung tài liệu giáo viên tải lên, gửi cho OpenRouter để sinh câu hỏi
+    bám theo đúng nội dung tài liệu.
     """
     permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    MAX_FILE_BYTES = 20 * 1024 * 1024
+    MAX_TEXT_CHARS = 15000
 
     def post(self, request: Request):
-        title = request.data.get("title", "")
+        upload = request.FILES.get("file")
+        if not upload:
+            return Response(
+                {"detail": "Cần chọn tài liệu (PDF, Word hoặc text) để tạo câu hỏi."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size and upload.size > self.MAX_FILE_BYTES:
+            return Response(
+                {"detail": "Tài liệu quá lớn (tối đa 20MB)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            extracted_text = self._extract_text(upload)
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {"detail": f"Không đọc được nội dung tài liệu: {exc}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        extracted_text = (extracted_text or "").strip()
+        if not extracted_text:
+            return Response(
+                {"detail": "Tài liệu không có nội dung văn bản để tạo câu hỏi."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(extracted_text) > self.MAX_TEXT_CHARS:
+            extracted_text = extracted_text[: self.MAX_TEXT_CHARS]
+
         level = request.data.get("level", "")
-        description = request.data.get("description", "")
         count = int(request.data.get("count") or 5)
-        hint = request.data.get("hint", "")
         model = (
             request.data.get("model")
             or os.getenv("OPENROUTER_MODEL")
@@ -231,10 +262,13 @@ class GenerateQuestionsAIView(APIView):
         count = max(1, min(count, 10))
 
         prompt = (
-            f"Bạn là trợ lý tạo đề thi tiểu học. Hãy tạo {count} câu hỏi trắc nghiệm, phù hợp trình độ \"{level}\".\n"
-            f"Tiêu đề bài kiểm tra: {title}.\n"
-            f"Mô tả: {description or 'Không có'}.\n"
-            f"Yêu cầu thêm từ giáo viên: {hint or 'Không có'}.\n\n"
+            f"Bạn là trợ lý tạo đề thi tiểu học. Dưới đây là nội dung một tài liệu bài học"
+            f", phù hợp trình độ \"{level or 'Tiểu học'}\".\n"
+            f"Hãy dựa vào ĐÚNG nội dung tài liệu này để tạo {count} câu hỏi trắc nghiệm."
+            " Không được bịa thông tin ngoài tài liệu.\n\n"
+            "=== NỘI DUNG TÀI LIỆU ===\n"
+            f"{extracted_text}\n"
+            "=== HẾT TÀI LIỆU ===\n\n"
             "QUY TẮC BẮT BUỘC:\n"
             "- CHỈ tạo câu hỏi loại 'single' (trắc nghiệm 1 đáp án đúng) hoặc 'boolean' (đúng/sai).\n"
             "- Mỗi câu hỏi 'single' phải có 3-4 choices và correct_indices chứa index đáp án đúng.\n"
@@ -257,7 +291,36 @@ class GenerateQuestionsAIView(APIView):
             "text": ai_result.get("text", ""),
             "raw": ai_result.get("raw", {}),
         })
-    
+
+    def _extract_text(self, upload) -> str:
+        name = (getattr(upload, "name", "") or "").lower()
+        content_type = (getattr(upload, "content_type", "") or "").lower()
+
+        if name.endswith(".pdf") or "pdf" in content_type:
+            from pypdf import PdfReader
+
+            reader = PdfReader(upload)
+            parts = []
+            for page in reader.pages:
+                parts.append(page.extract_text() or "")
+            return "\n".join(parts)
+
+        if name.endswith(".docx") or "wordprocessingml" in content_type:
+            import docx
+
+            document = docx.Document(upload)
+            return "\n".join(paragraph.text for paragraph in document.paragraphs)
+
+        if (
+            name.endswith(".txt")
+            or content_type.startswith("text/")
+            or name.endswith(".md")
+        ):
+            return upload.read().decode("utf-8", errors="ignore")
+
+        raise ValueError("Định dạng tài liệu không được hỗ trợ (chỉ PDF, DOCX, TXT).")
+
+
     def _call_openrouter_api(self, prompt, model):
         """Gọi OpenRouter API để tạo câu hỏi"""
         api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
