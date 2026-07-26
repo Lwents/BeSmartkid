@@ -19,6 +19,26 @@ import requests as http_requests
 
 logger = logging.getLogger(__name__)
 
+def student_grade_of(user) -> int:
+    """Lớp của học sinh (1-5) để AI chọn ví dụ đúng trình độ.
+
+    Profile không có trường 'grade'; lớp được lưu trong profile.metadata['class_name']
+    (dạng "3" hoặc "Lớp 3"). Trước đây code đọc profile.grade nên luôn trả về 1,
+    khiến AI lấy ví dụ quá dễ cho học sinh lớp lớn.
+    """
+    import re as _re
+    profile = getattr(user, 'profile', None)
+    raw = ''
+    if profile:
+        raw = str((getattr(profile, 'metadata', None) or {}).get('class_name') or '')
+    digits = _re.sub(r'\D', '', raw)
+    if digits:
+        grade = int(digits)
+        if 1 <= grade <= 5:
+            return grade
+    return 1
+
+
 
 class AITutorChatView(APIView):
     """
@@ -46,9 +66,7 @@ class AITutorChatView(APIView):
             )
         
         # Get student grade from profile
-        student_grade = 1
-        if hasattr(request.user, 'profile'):
-            student_grade = getattr(request.user.profile, 'grade', 1) or 1
+        student_grade = student_grade_of(request.user)
         
         # Get conversation history from cache
         cache_key = f"ai_chat:{request.user.id}:{conversation_id or 'default'}"
@@ -73,7 +91,7 @@ class AITutorChatView(APIView):
             # Không trả câu trả lời mẫu khi nhà cung cấp AI chưa được cấu hình hoặc lỗi.
             # Client cần biết đúng trạng thái để không hiểu nhầm dữ liệu fallback là kết quả thật.
             return Response(
-                {'detail': 'AI Tutor chưa sẵn sàng. Vui lòng cấu hình OPENROUTER_API_KEY.'},
+                {'detail': 'Gia Sư AI chưa sẵn sàng. Vui lòng cấu hình khóa AI trong .env.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -144,9 +162,7 @@ class AITutorHintView(APIView):
             })
         
         # Get student grade
-        student_grade = 1
-        if hasattr(request.user, 'profile'):
-            student_grade = getattr(request.user.profile, 'grade', 1) or 1
+        student_grade = student_grade_of(request.user)
         
         # Get hint
         result = ai_tutor.get_hint(
@@ -206,9 +222,7 @@ class AITutorExplainView(APIView):
             )
         
         # Get student grade
-        student_grade = 1
-        if hasattr(request.user, 'profile'):
-            student_grade = getattr(request.user.profile, 'grade', 1) or 1
+        student_grade = student_grade_of(request.user)
         
         result = ai_tutor.explain_concept(
             concept=concept,
@@ -233,9 +247,13 @@ class AITutorEncourageView(APIView):
         score = request.data.get('score')
         
         # Get student name
+        # Profile không có trường 'name' (chỉ có display_name) nên đọc trực tiếp
+        # request.user.profile.name gây AttributeError -> endpoint trả 500.
         student_name = "con"
-        if hasattr(request.user, 'profile') and request.user.profile.name:
-            student_name = request.user.profile.name.split()[0]  # First name
+        profile = getattr(request.user, 'profile', None)
+        display_name = (getattr(profile, 'display_name', '') or '').strip() if profile else ''
+        if display_name:
+            student_name = display_name.split()[0]  # First name
         elif request.user.first_name:
             student_name = request.user.first_name
         
@@ -453,9 +471,7 @@ class AITutorPracticeView(APIView):
         wrong_questions = request.data.get('wrong_questions', [])  # Câu hỏi sai cụ thể
         
         # Get student grade
-        student_grade = 1
-        if hasattr(request.user, 'profile'):
-            student_grade = getattr(request.user.profile, 'grade', 1) or 1
+        student_grade = student_grade_of(request.user)
         
         # Nếu có wrong_questions từ weaknesses, sử dụng chúng
         if not wrong_questions and weaknesses:
@@ -1016,8 +1032,8 @@ class AITutorVideoQuestionView(APIView):
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://sunnyedu.local",
-            "X-Title": "SunnyEdu AI Assistant",
+            "HTTP-Referer": "https://smartkid.local",
+            "X-Title": "SmartKid AI Assistant",
         }
         
         messages = []
@@ -1088,9 +1104,7 @@ class AITutorVideoQuestionView(APIView):
             )
         
         # Get student grade from profile
-        student_grade = 1
-        if hasattr(request.user, 'profile'):
-            student_grade = getattr(request.user.profile, 'grade', 1) or 1
+        student_grade = student_grade_of(request.user)
         
         # Format timestamp thành HH:MM:SS hoặc MM:SS (hỗ trợ video dài hơn 1 giờ)
         total_seconds = int(timestamp)
@@ -1293,7 +1307,7 @@ class AITutorVideoQuestionView(APIView):
         }
         
         # Build prompt đặc biệt cho câu hỏi về video với ngữ cảnh timestamp
-        video_prompt = f"""Bạn là trợ lý học tập AI của SunnyEdu.
+        video_prompt = f"""Bạn là Gia Sư AI của SmartKid.
 
 Học sinh đang xem video bài học "{lesson_title or video_title}" tại thời điểm {timestamp_str} ({time_label}).
 
