@@ -124,6 +124,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'infrastructure.middleware.GlobalExceptionMiddleware',
+    # Dịch thông báo lỗi sang tiếng Việt ở lớp ngoài cùng
+    'infrastructure.middleware.VietnameseErrorMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'
@@ -322,7 +324,9 @@ LOGGING = {
 # -------------------------------
 # Locale / Time
 # -------------------------------
-LANGUAGE_CODE = 'en-us'
+# Tiếng Việt: Django và DRF đều có sẵn bản dịch nên các thông báo của
+# thư viện (mật khẩu quá ngắn, trường bắt buộc...) cũng ra tiếng Việt.
+LANGUAGE_CODE = 'vi'
 TIME_ZONE = 'Asia/Ho_Chi_Minh'
 USE_I18N = True
 USE_TZ = True

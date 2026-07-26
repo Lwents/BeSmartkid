@@ -8,6 +8,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
+from infrastructure.vi_messages import dich_payload
+
 try:
     from content.services.exceptions import (
         DomainValidationError as ContentDomainValidationError,
@@ -88,6 +90,9 @@ def _extract_message(payload):
 
 
 def _normalize_error_payload(data, status_code, default_code="error"):
+    # Dịch trước khi dựng payload: gom mọi thông báo lỗi về tiếng Việt tại một chỗ,
+    # gồm cả thông báo mặc định của DRF và chuỗi tiếng Anh viết trong các view.
+    data = dich_payload(data)
     # Already formatted payload → ensure status present then return
     if isinstance(data, Mapping) and "message" in data and ("error" in data or "code" in data or "detail" in data):
         normalized = dict(data)
