@@ -166,9 +166,37 @@ def _khong_tim_thay(m):
     return f"Không tìm thấy {ten}" if ten else "Không tìm thấy dữ liệu yêu cầu"
 
 
+# Tên trường trong các thông báo "<field> is required" rải khắp backend.
+TEN_TRUONG = {
+    "course_id": "mã khóa học", "lesson_id": "mã bài học",
+    "module_id": "mã chương", "exercise_id": "mã bài tập",
+    "question_id": "mã câu hỏi", "attempt_id": "mã lượt làm bài",
+    "user_id": "mã người dùng", "student_id": "mã học sinh",
+    "classroom_id": "mã lớp học", "invite_code": "mã mời",
+    "email": "email", "username": "tên đăng nhập", "password": "mật khẩu",
+    "old_password": "mật khẩu hiện tại", "oldpassword": "mật khẩu hiện tại",
+    "new_password": "mật khẩu mới", "newpassword": "mật khẩu mới",
+    "message": "nội dung tin nhắn", "text": "nội dung", "content": "nội dung",
+    "title": "tiêu đề", "score": "điểm", "token": "mã xác thực",
+    "phone": "số điện thoại", "role": "vai trò", "grade": "lớp",
+}
+
+
+def _thieu_truong(m):
+    """Ghép câu "Vui lòng nhập ..." từ một hoặc nhiều tên trường."""
+    tho = re.split(r"\s*(?:,|and|&)\s*", m.group(1))
+    ten = [TEN_TRUONG.get(t.strip(), t.strip()) for t in tho if t.strip()]
+    if not ten:
+        return "Thiếu thông tin bắt buộc"
+    return "Vui lòng nhập " + " và ".join(ten)
+
+
 # Thông báo có tham số → dùng biểu thức chính quy.
 QUY_TAC = [
     (r"^no ([a-z ]+) matches the given query\.?$", _khong_tim_thay),
+    # "lesson_id is required", "oldPassword and newPassword are required"
+    (r"^([a-z_]+(?:\s*(?:,|and|&)\s*[a-z_]+)*)\s+(?:is|are)\s+required\.?$",
+     _thieu_truong),
     (r"^ensure this field has no more than (\d+) characters?\.?$",
      r"Nội dung này không được dài hơn \1 ký tự"),
     (r"^ensure this field has at least (\d+) characters?\.?$",
