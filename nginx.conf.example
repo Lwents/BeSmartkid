@@ -1,5 +1,5 @@
 # Nginx configuration for Django backend
-# File này đặt tại: /etc/nginx/sites-available/sunedu-backend
+# File này đặt tại: /etc/nginx/sites-available/smartkid-backend
 
 upstream django {
     server localhost:8000;
@@ -15,19 +15,19 @@ server {
     client_max_body_size 100M;
     
     # Logs
-    access_log /var/log/nginx/sunedu-backend-access.log;
-    error_log /var/log/nginx/sunedu-backend-error.log;
+    access_log /var/log/nginx/smartkid-backend-access.log;
+    error_log /var/log/nginx/smartkid-backend-error.log;
 
     # Static files
     location /static/ {
-        alias /home/ubuntu/SunEdu/backend/staticfiles/;
+        alias /home/ubuntu/SmartKid/backend/staticfiles/;
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
 
     # Media files
     location /media/ {
-        alias /home/ubuntu/SunEdu/backend/media/;
+        alias /home/ubuntu/SmartKid/backend/media/;
         expires 30d;
         add_header Cache-Control "public";
     }
@@ -63,14 +63,14 @@ server {
 #     
 #     # Static files
 #     location /static/ {
-#         alias /home/ubuntu/SunEdu/backend/staticfiles/;
+#         alias /home/ubuntu/SmartKid/backend/staticfiles/;
 #         expires 30d;
 #         add_header Cache-Control "public, immutable";
 #     }
 # 
 #     # Media files
 #     location /media/ {
-#         alias /home/ubuntu/SunEdu/backend/media/;
+#         alias /home/ubuntu/SmartKid/backend/media/;
 #         expires 30d;
 #         add_header Cache-Control "public";
 #     }

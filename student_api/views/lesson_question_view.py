@@ -547,7 +547,7 @@ class StudentLessonQuestionAIAnswerView(APIView):
                     try:
                         ai_user = User.objects.create_user(
                             username="AI_Assistant",
-                            email="ai@sunedu.local",
+                            email="ai@smartkid.local",
                             password=None,
                             is_active=False,
                             role="admin",
@@ -708,7 +708,7 @@ class StudentLessonQuestionAIAnswerView(APIView):
         """Tạo prompt cho AI"""
         # Nếu có lịch sử hội thoại, sử dụng prompt khác
         if conversation_history and len(conversation_history) > 50:
-            return f"""Bạn là trợ lý học tập AI của SunnyEdu, đang hỗ trợ học sinh học bài "{lesson.title}".
+            return f"""Bạn là trợ lý học tập AI của SmartKid, đang hỗ trợ học sinh học bài "{lesson.title}".
 
 THÔNG TIN BÀI HỌC:
 {lesson_context}
@@ -749,7 +749,7 @@ YÊU CẦU TRẢ LỜI (QUAN TRỌNG - PHẢI TUÂN THỦ):
 Trả lời bằng tiếng Việt (văn bản thuần túy, không markdown):"""
         
         # Prompt cho câu hỏi đầu tiên
-        return f"""Bạn là trợ lý học tập AI của SunnyEdu, hỗ trợ học sinh học bài "{lesson.title}".
+        return f"""Bạn là trợ lý học tập AI của SmartKid, hỗ trợ học sinh học bài "{lesson.title}".
 
 THÔNG TIN BÀI HỌC:
 {lesson_context}
@@ -822,8 +822,8 @@ Trả lời bằng tiếng Việt (văn bản thuần túy, không markdown):"""
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://sunnyedu.local",
-            "X-Title": "SunnyEdu AI Assistant",
+            "HTTP-Referer": "https://smartkid.local",
+            "X-Title": "SmartKid AI Assistant",
         }
         
         try:

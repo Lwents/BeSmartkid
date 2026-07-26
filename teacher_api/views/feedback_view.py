@@ -130,12 +130,12 @@ Giáo viên {teacher_name} đã gửi phản hồi cho bạn:
 
 Đánh giá: {rating}/10
 
-Bạn có thể xem chi tiết phản hồi trong hệ thống SunnyEdu.
+Bạn có thể xem chi tiết phản hồi trong hệ thống SmartKid.
 
 Trân trọng,
-Đội ngũ SunnyEdu
+Đội ngũ SmartKid
 '''
-                        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@sunnyedu.vn')
+                        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@smartkid.vn')
                         send_mail(
                             subject=email_subject,
                             message=email_message,

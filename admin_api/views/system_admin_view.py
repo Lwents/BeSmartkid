@@ -57,7 +57,7 @@ class AdminSystemConfigView(APIView):
         """Get default system configuration"""
         return {
             'brand': {
-                'siteName': getattr(settings, 'SITE_NAME', 'SunEdu'),
+                'siteName': getattr(settings, 'SITE_NAME', 'SmartKid'),
                 'language': 'vi',
                 'timezone': 'Asia/Ho_Chi_Minh',
                 'currency': 'VND',
@@ -216,8 +216,8 @@ class AdminSystemTestEmailView(APIView):
 
         try:
             send_mail(
-                subject='Test Email from SunEdu',
-                message='This is a test email from the SunEdu admin panel.',
+                subject='Test Email from SmartKid',
+                message='This is a test email from the SmartKid admin panel.',
                 from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com'),
                 recipient_list=[email],
                 fail_silently=False

@@ -128,8 +128,8 @@ class AIAPIClient:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://sunnyedu.local",
-            "X-Title": "SunnyEdu AI Learning",
+            "HTTP-Referer": "https://smartkid.local",
+            "X-Title": "SmartKid AI Learning",
         }
         
         try:

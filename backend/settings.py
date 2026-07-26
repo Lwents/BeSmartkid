@@ -292,8 +292,8 @@ MOMO_POS_ENDPOINT = os.getenv(
     "MOMO_POS_ENDPOINT",
     "https://test-payment.momo.vn/v2/gateway/api/pos",
 )
-MOMO_PARTNER_NAME = os.getenv("MOMO_PARTNER_NAME", "SunEdu")
-MOMO_STORE_ID = os.getenv("MOMO_STORE_ID", "SunEduStore")
+MOMO_PARTNER_NAME = os.getenv("MOMO_PARTNER_NAME", "SmartKid")
+MOMO_STORE_ID = os.getenv("MOMO_STORE_ID", "SmartKidStore")
 MOMO_REDIRECT_URL = os.getenv("MOMO_REDIRECT_URL", "http://localhost:5173/payment/result")
 MOMO_IPN_URL = os.getenv("MOMO_IPN_URL", "")
 try:

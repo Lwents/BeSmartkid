@@ -32,8 +32,8 @@ class MoMoAIOClient:
         self.secret_key = secret_key or settings.MOMO_SECRET_KEY
         self.endpoint = endpoint or getattr(settings, "MOMO_CREATE_ENDPOINT", self.CREATE_ENDPOINT)
         self.pos_endpoint = getattr(settings, "MOMO_POS_ENDPOINT", self.POS_ENDPOINT)
-        self.partner_name = getattr(settings, "MOMO_PARTNER_NAME", "SunEdu")
-        self.store_id = getattr(settings, "MOMO_STORE_ID", "SunEduStore")
+        self.partner_name = getattr(settings, "MOMO_PARTNER_NAME", "SmartKid")
+        self.store_id = getattr(settings, "MOMO_STORE_ID", "SmartKidStore")
         self.query_endpoint = getattr(settings, "MOMO_QUERY_ENDPOINT", self.QUERY_ENDPOINT)
 
         # Validate required credentials

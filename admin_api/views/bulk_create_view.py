@@ -64,7 +64,7 @@ class BulkCreateUsersView(APIView):
                     # Example: K72 -> 7251050101, 7251050102, ...
                     # A23 -> 0123050101, 0123050102, ...
                     username = f"{prefix}5{str(i).zfill(5)}"
-                    email = f"{username}@sunnyedu.local"
+                    email = f"{username}@smartkid.local"
 
                     # Check if username already exists
                     if UserModel.objects.filter(username=username).exists():

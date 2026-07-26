@@ -58,8 +58,8 @@ def request_password_change_otp(user: UserModel) -> None:
         f"Mã sẽ hết hạn sau {OTP_EXP_MINUTES} phút.\n\n"
         "Nếu bạn không yêu cầu, hãy bỏ qua email này và không chia sẻ mã cho bất kỳ ai."
     )
-    brand = getattr(settings, 'SITE_NAME', 'SunEdu')
-    support_email = getattr(settings, 'SUPPORT_EMAIL', getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@sunedu.vn'))
+    brand = getattr(settings, 'SITE_NAME', 'SmartKid')
+    support_email = getattr(settings, 'SUPPORT_EMAIL', getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@smartkid.vn'))
     html_body = render_email_template(
         'emails/gmail_base.html',
         {

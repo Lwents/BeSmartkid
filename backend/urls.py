@@ -29,7 +29,7 @@ from custom_account.api.views.auth_view import GoogleLogin
 
 
 def home(request):
-    return HttpResponse("Welcome to my SunnyEdu backend!")
+    return HttpResponse("Welcome to my SmartKid backend!")
 
 
 def media_stream(request, path):

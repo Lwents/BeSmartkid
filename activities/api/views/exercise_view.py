@@ -335,8 +335,8 @@ class GenerateQuestionsAIView(APIView):
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://sunedu.local",
-            "X-Title": "SunEdu AI Question Generator",
+            "HTTP-Referer": "https://smartkid.local",
+            "X-Title": "SmartKid AI Question Generator",
         }
 
         try:

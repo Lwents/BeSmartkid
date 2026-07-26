@@ -35,11 +35,11 @@ def reset_password_request(email: str) -> None:
 
     try:
         email_service = get_email_service()
-        brand = getattr(settings, 'SITE_NAME', 'SunEdu')
+        brand = getattr(settings, 'SITE_NAME', 'SmartKid')
         support_email = getattr(
-            settings, 'SUPPORT_EMAIL', getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@sunedu.vn')
+            settings, 'SUPPORT_EMAIL', getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@smartkid.vn')
         )
-        subject = "SunEdu - Đặt lại mật khẩu"
+        subject = "SmartKid - Đặt lại mật khẩu"
         message = (
             f"Xin chào {user.username or user.email},\n\n"
             f"Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản {brand}.\n"
@@ -62,7 +62,7 @@ def reset_password_request(email: str) -> None:
                 'cta_label': "Đặt lại mật khẩu",
                 'footer_note': "Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email hoặc đổi mật khẩu ngay.",
                 'support_email': support_email,
-                'preheader': "Liên kết đặt lại mật khẩu từ SunEdu.",
+                'preheader': "Liên kết đặt lại mật khẩu từ SmartKid.",
             },
         )
         email_service.send(

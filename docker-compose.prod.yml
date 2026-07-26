@@ -65,8 +65,8 @@ services:
       MOMO_PARTNER_CODE: ${MOMO_PARTNER_CODE:-}
       MOMO_ACCESS_KEY: ${MOMO_ACCESS_KEY:-}
       MOMO_SECRET_KEY: ${MOMO_SECRET_KEY:-}
-      MOMO_PARTNER_NAME: ${MOMO_PARTNER_NAME:-SunEdu}
-      MOMO_STORE_ID: ${MOMO_STORE_ID:-SunEduStore}
+      MOMO_PARTNER_NAME: ${MOMO_PARTNER_NAME:-SmartKid}
+      MOMO_STORE_ID: ${MOMO_STORE_ID:-SmartKidStore}
       MOMO_REDIRECT_URL: ${MOMO_REDIRECT_URL:-}
       MOMO_IPN_URL: ${MOMO_IPN_URL:-}
       MOMO_CREATE_ENDPOINT: ${MOMO_CREATE_ENDPOINT:-https://test-payment.momo.vn/v2/gateway/api/create}
