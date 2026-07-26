@@ -37,7 +37,7 @@ class ModuleService:
         return ModuleDomain.from_model(module)
 
     @transaction.atomic
-    def reorder_modules(self, course_id: str, reorder_data: ReorderModulesDomain) -> None:
-        reorder_data.validate()
-        for mod_id, pos in reorder_data.order_map.items():
+    def reorder_modules(self, course_id: str, reorder_data) -> None:
+        order_map = reorder_data["order_map"] if isinstance(reorder_data, dict) else reorder_data.order_map
+        for mod_id, pos in order_map.items():
             Module.objects.filter(id=mod_id, course_id=course_id).update(position=pos)

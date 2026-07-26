@@ -31,6 +31,7 @@ urlpatterns = [
     path("modules/<uuid:module_id>/lessons/", lesson_view.LessonListCreateView.as_view(), name="lesson-list"),
     path("lessons/<uuid:pk>/", lesson_view.LessonDetailView.as_view(), name="lesson-detail"),
     path("lessons/<uuid:lesson_id>/publish/", lesson_view.LessonPublishView.as_view(), name="lesson-publish"),
+    path("modules/<uuid:module_id>/lessons/reorder/", lesson_view.LessonReorderView.as_view(), name="lesson-reorder"),
     path("lessons/<uuid:lesson_id>/transcribe/", lesson_view.LessonTranscribeView.as_view(), name="lesson-transcribe"),
     path("lessons/<uuid:lesson_id>/progress/", lesson_progress_view.LessonProgressView.as_view(), name="lesson-progress"),
     path("lessons/<uuid:lesson_id>/unlock-check/", lesson_progress_view.LessonUnlockCheckView.as_view(), name="lesson-unlock-check"),

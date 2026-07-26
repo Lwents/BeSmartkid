@@ -68,7 +68,7 @@ class LessonService:
         return LessonDomain.from_model(lesson)
 
     @transaction.atomic
-    def reorder_lessons(self, module_id: str, reorder_data: ReorderLessonsDomain) -> None:
-        reorder_data.validate()
-        for lesson_id, pos in reorder_data.order_map.items():
+    def reorder_lessons(self, module_id: str, reorder_data) -> None:
+        order_map = reorder_data["order_map"] if isinstance(reorder_data, dict) else reorder_data.order_map
+        for lesson_id, pos in order_map.items():
             Lesson.objects.filter(id=lesson_id, module_id=module_id).update(position=pos)

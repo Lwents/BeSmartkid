@@ -348,6 +348,24 @@ class LessonPublishView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class LessonReorderView(APIView):
+    """
+    POST /api/modules/{module_id}/lessons/reorder/
+    body: {"order_map": {"<lesson_id>": <pos>, ...}}
+    """
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
+
+    def post(self, request, module_id: str):
+        order_map = request.data.get("order_map")
+        if not isinstance(order_map, dict):
+            return Response({"detail": "order_map must be object"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            lesson_service.reorder_lessons(module_id=module_id, reorder_data={"order_map": order_map})
+            return Response({"status": "ok"})
+        except Exception as ex:
+            return Response({"detail": str(ex)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class LessonTranscribeView(APIView):
     """
     POST /api/lessons/{id}/transcribe/
