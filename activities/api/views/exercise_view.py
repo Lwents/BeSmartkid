@@ -327,7 +327,11 @@ class GenerateQuestionsAIView(APIView):
         if not api_key:
             return {"error": "OpenRouter API chưa được cấu hình"}
 
-        url = "https://openrouter.ai/api/v1/chat/completions"
+        base_url = (
+            os.getenv("OPENROUTER_BASE_URL")
+            or "https://openrouter.ai/api/v1"
+        ).rstrip("/")
+        url = f"{base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -343,6 +347,7 @@ class GenerateQuestionsAIView(APIView):
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 2048,
+                    "stream": False,
                 },
                 timeout=60,
             )
