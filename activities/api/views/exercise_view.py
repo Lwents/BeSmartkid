@@ -286,7 +286,7 @@ class GenerateQuestionsAIView(APIView):
 
     MAX_FILE_BYTES = 20 * 1024 * 1024
     MAX_TEXT_CHARS = 15000
-    MAX_QUESTIONS = 30
+    MAX_QUESTIONS = 50
     BATCH_SIZE = 8
     EXTRA_GENERATION_CALLS = 3
 
@@ -325,7 +325,12 @@ class GenerateQuestionsAIView(APIView):
             count = int(request.data.get("count") or 10)
         except (TypeError, ValueError):
             return Response(
-                {"detail": "Số câu hỏi phải là một số từ 1 đến 30."},
+                {"detail": f"Số câu hỏi phải là một số từ 1 đến {self.MAX_QUESTIONS}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if count < 1 or count > self.MAX_QUESTIONS:
+            return Response(
+                {"detail": f"Số câu hỏi phải từ 1 đến {self.MAX_QUESTIONS}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         model = (
@@ -335,7 +340,6 @@ class GenerateQuestionsAIView(APIView):
             or "openai/gpt-4o"
         )
 
-        count = max(1, min(count, self.MAX_QUESTIONS))
         questions = []
         seen_prompts = set()
         errors = []
@@ -361,7 +365,7 @@ class GenerateQuestionsAIView(APIView):
             )
             if ai_result.get("error"):
                 errors.append(ai_result["error"])
-                if len(errors) >= 2:
+                if len(errors) >= self.EXTRA_GENERATION_CALLS:
                     break
                 continue
             model_used = ai_result.get("model", model_used)
@@ -393,7 +397,7 @@ class GenerateQuestionsAIView(APIView):
     def _generation_prompt(self, extracted_text, level, count, existing_questions):
         avoid_repeats = ""
         if existing_questions:
-            recent = existing_questions[-30:]
+            recent = existing_questions[-self.MAX_QUESTIONS:]
             avoid_repeats = (
                 "\nKHÔNG được lặp lại các câu đã tạo sau:\n- "
                 + "\n- ".join(recent)
