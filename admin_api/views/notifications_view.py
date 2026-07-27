@@ -6,6 +6,15 @@ from activities.models import Notification
 from django.contrib.auth import get_user_model
 
 
+TEACHER_QA_CATEGORIES = ("lesson_question", "lesson_question_reply")
+
+
+def admin_notifications_for(user):
+    return Notification.objects.filter(user=user).exclude(
+        category__in=TEACHER_QA_CATEGORIES
+    )
+
+
 class AdminNotificationsView(APIView):
     """
     GET /api/admin/notifications/
@@ -24,7 +33,7 @@ class AdminNotificationsView(APIView):
         is_read = request.query_params.get('is_read')
         
         # Build query
-        queryset = Notification.objects.filter(user=request.user)
+        queryset = admin_notifications_for(request.user)
         
         if category:
             queryset = queryset.filter(category=category)
@@ -53,7 +62,7 @@ class AdminNotificationsView(APIView):
         return Response({
             'notifications': notifications_data,
             'total': len(notifications_data),
-            'unread_count': Notification.objects.filter(user=request.user, is_read=False).count(),
+            'unread_count': admin_notifications_for(request.user).filter(is_read=False).count(),
         }, status=status.HTTP_200_OK)
 
 
@@ -70,7 +79,7 @@ class AdminNotificationReadView(APIView):
             return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         
         try:
-            notification = Notification.objects.get(id=id, user=request.user)
+            notification = admin_notifications_for(request.user).get(id=id)
             notification.is_read = True
             notification.save(update_fields=['is_read'])
             
@@ -94,9 +103,8 @@ class AdminNotificationReadAllView(APIView):
         if not request.user.is_staff:
             return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         
-        updated = Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+        updated = admin_notifications_for(request.user).filter(is_read=False).update(is_read=True)
         
         return Response({
             'updated_count': updated,
         }, status=status.HTTP_200_OK)
-

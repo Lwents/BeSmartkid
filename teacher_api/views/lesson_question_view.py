@@ -98,7 +98,9 @@ class TeacherLessonQuestionView(APIView):
 
     def get(self, request):
         lesson_id = request.query_params.get("lesson_id")
-        qs = LessonQuestion.objects.all().select_related(
+        qs = LessonQuestion.objects.filter(
+            lesson__module__course__owner=request.user
+        ).select_related(
             "student", "student__profile", "lesson", "lesson__module", "lesson__module__course"
         ).prefetch_related("replies__user", "replies__user__profile")
         if lesson_id:
@@ -107,7 +109,11 @@ class TeacherLessonQuestionView(APIView):
         return Response({"items": data}, status=status.HTTP_200_OK)
 
     def post(self, request, pk):
-        question = get_object_or_404(LessonQuestion, id=pk)
+        question = get_object_or_404(
+            LessonQuestion,
+            id=pk,
+            lesson__module__course__owner=request.user,
+        )
         content = (request.data.get("content") or "").strip()
         if len(content) < 2:
             return Response({"detail": "Nội dung quá ngắn"}, status=status.HTTP_400_BAD_REQUEST)
@@ -122,7 +128,7 @@ class TeacherLessonQuestionView(APIView):
         # Notify student
         Notification.objects.create(
             user=question.student,
-            title=f"Giáo viên trả lời: {question.lesson.title}",
+            title="Thầy cô đã trả lời em",
             message=content,
             type="info",
             category="lesson_question_reply",
@@ -130,6 +136,8 @@ class TeacherLessonQuestionView(APIView):
                 "lesson_question_id": str(question.id),
                 "lesson_id": str(question.lesson_id),
                 "course_id": str(question.lesson.module.course_id) if question.lesson.module else None,
+                "course_title": question.lesson.module.course.title if question.lesson.module else "",
+                "lesson_title": question.lesson.title,
                 "teacher_id": str(request.user.id),
                 "teacher": request.user.username,
                 "reply_id": str(rep.id),
@@ -139,7 +147,12 @@ class TeacherLessonQuestionView(APIView):
         return Response({"item": serialize_question(question, user=request.user, request=request)}, status=status.HTTP_201_CREATED)
 
     def patch(self, request, pk):
-        rep = get_object_or_404(LessonQuestionReply, id=pk, user=request.user)
+        rep = get_object_or_404(
+            LessonQuestionReply,
+            id=pk,
+            user=request.user,
+            question__lesson__module__course__owner=request.user,
+        )
         content = (request.data.get("content") or "").strip()
         if len(content) < 2:
             return Response({"detail": "Nội dung quá ngắn"}, status=status.HTTP_400_BAD_REQUEST)
@@ -148,7 +161,12 @@ class TeacherLessonQuestionView(APIView):
         return Response({"item": serialize_question(rep.question, user=request.user, request=request)}, status=status.HTTP_200_OK)
 
     def delete(self, request, pk):
-        rep = get_object_or_404(LessonQuestionReply, id=pk, user=request.user)
+        rep = get_object_or_404(
+            LessonQuestionReply,
+            id=pk,
+            user=request.user,
+            question__lesson__module__course__owner=request.user,
+        )
         Notification.objects.filter(metadata__reply_id=str(rep.id)).delete()
         q = rep.question
         rep.delete()

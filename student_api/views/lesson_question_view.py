@@ -17,6 +17,20 @@ from django.http import StreamingHttpResponse
 import json
 
 
+def assigned_teacher_for(lesson):
+    """Return the course teacher without treating an admin owner as a teacher."""
+    course = lesson.module.course if lesson and lesson.module else None
+    owner = getattr(course, "owner", None)
+    if (
+        owner
+        and owner.is_active
+        and not owner.is_staff
+        and getattr(owner, "role", None) == "instructor"
+    ):
+        return course, owner
+    return course, None
+
+
 def avatar_for(user, request):
     """Get avatar URL for user, with fallback to profile avatar_url and default avatar"""
     if not user:
@@ -188,37 +202,35 @@ class StudentLessonQuestionView(APIView):
             return Response({"detail": "Nội dung không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
 
         lesson = get_object_or_404(Lesson, id=lesson_id)
-        course = lesson.module.course if lesson.module else None
-        teacher = getattr(course, "owner", None)
+        course, teacher = assigned_teacher_for(lesson)
         if teacher is None:
-            return Response({"detail": "Không tìm thấy giáo viên phụ trách"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Khóa học chưa được gán đúng giáo viên phụ trách"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         student = request.user
         q = LessonQuestion.objects.create(lesson=lesson, student=student, content=content)
 
         # Chỉ gửi thông báo cho giáo viên nếu KHÔNG phải là tương tác với AI
         if not is_ai_interaction:
-            course = lesson.module.course if lesson.module else None
-            teacher = getattr(course, "owner", None)
-            if teacher:
-                course_title = course.title if course else "Khóa học"
-                lesson_title = lesson.title
-                Notification.objects.create(
-                    user=teacher,
-                    title=f"Học sinh hỏi về bài: {lesson.title}",
-                    message=f"[{course_title}] {content}",
-                    type="info",
-                    category="lesson_question",
-                    metadata={
-                        "lesson_question_id": str(q.id),
-                        "lesson_id": str(lesson.id),
-                        "course_id": str(course.id) if course else None,
-                        "student_id": str(student.id),
-                        "student": student.username,
-                        "lesson_title": lesson.title,
-                        "course_title": course_title,
-                    },
-                )
+            course_title = course.title if course else "Khóa học"
+            Notification.objects.create(
+                user=teacher,
+                title=f"Học sinh hỏi về bài: {lesson.title}",
+                message=f"[{course_title}] {content}",
+                type="info",
+                category="lesson_question",
+                metadata={
+                    "lesson_question_id": str(q.id),
+                    "lesson_id": str(lesson.id),
+                    "course_id": str(course.id) if course else None,
+                    "student_id": str(student.id),
+                    "student": student.username,
+                    "lesson_title": lesson.title,
+                    "course_title": course_title,
+                },
+            )
 
         # Trả về câu hỏi vừa tạo
         data = serialize_question(q, user=request.user, request=request)
@@ -278,8 +290,7 @@ class StudentLessonQuestionReplyView(APIView):
 
         # Chỉ gửi thông báo cho giáo viên nếu KHÔNG phải là tương tác với AI
         if not is_ai_interaction:
-            course = question.lesson.module.course if question.lesson.module else None
-            teacher = getattr(course, "owner", None)
+            course, teacher = assigned_teacher_for(question.lesson)
             if teacher:
                 course_title = course.title if course else "Khóa học"
                 lesson_title = question.lesson.title
