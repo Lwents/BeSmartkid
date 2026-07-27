@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from admin_api.permissions import IsAdmin
-from custom_account.models import UserModel, AuthAttempt
+from custom_account.models import UserModel, AuthAttempt, UserPresence
 from content.models import Course, Lesson
 
 try:
@@ -160,15 +160,16 @@ class AdminDashboardView(APIView):
     def _get_active_users(self, now: datetime) -> dict:
         """Return users active within last 10 minutes."""
         threshold = now - timedelta(minutes=10)
-        qs = UserModel.objects.filter(
-            is_active=True,
-            last_login__gte=threshold,
+        qs = UserPresence.objects.filter(
+            last_seen_at__gte=threshold,
+            user__is_active=True,
         ).exclude(
-            Q(is_staff=True) | Q(role__iexact='admin')
-        ).select_related('profile').order_by('-last_login')
+            Q(user__is_staff=True) | Q(user__role__iexact='admin')
+        ).select_related('user', 'user__profile').order_by('-last_seen_at')
 
         recent = []
-        for user in qs[:15]:
+        for presence in qs[:15]:
+            user = presence.user
             # getattr trực tiếp trên user: user không có profile sẽ trả None thay vì raise
             profile = getattr(user, 'profile', None)
             display_name = getattr(profile, 'display_name', None) if profile else None
@@ -179,7 +180,7 @@ class AdminDashboardView(APIView):
                 'email': user.email,
                 'role': user.role,
                 'roleLabel': self._role_label(user.role),
-                'lastActive': user.last_login.isoformat() if user.last_login else None,
+                'lastActive': presence.last_seen_at.isoformat(),
             })
 
         return {
@@ -207,5 +208,4 @@ class AdminActiveUsersRealtimeView(AdminDashboardView):
         now = timezone.now()
         active_users = self._get_active_users(now)
         return Response(active_users, status=status.HTTP_200_OK)
-
 

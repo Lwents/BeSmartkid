@@ -98,6 +98,42 @@ class AuthAttempt(models.Model):
         return f"{self.username_or_email or self.user_id} - {status}"
 
 
+class UserPresence(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name='presence',
+    )
+    last_seen_at = models.DateTimeField(default=timezone.now, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-last_seen_at']
+
+
+class UserSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tracked_sessions',
+    )
+    jti = models.CharField(max_length=255, unique=True)
+    device = models.CharField(max_length=255, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_active_at = models.DateTimeField(default=timezone.now, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-last_active_at']
+        indexes = [models.Index(fields=['user', 'revoked_at', 'expires_at'])]
+
+
 class SecurityPolicy(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     twofa_enforce_admin = models.BooleanField(default=False)

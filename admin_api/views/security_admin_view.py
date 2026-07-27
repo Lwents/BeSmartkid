@@ -5,9 +5,11 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from admin_api.permissions import IsAdmin
-from custom_account.models import SecurityPolicy
+from admin_api.services import record_admin_action
+from custom_account.models import SecurityPolicy, UserSession
 
 
 class AdminSecurityPolicyView(APIView):
@@ -75,6 +77,12 @@ class AdminSecurityPolicyView(APIView):
             policy.rbac_note = payload.get('rbacNote') or ''
 
         policy.save()
+        record_admin_action(
+            request=request,
+            action='security.policy.update',
+            target_type='security_policy',
+            target_id=policy.pk,
+        )
 
         return Response(
             {
@@ -199,39 +207,54 @@ class AdminSessionListView(APIView):
     def get(self, request):
         """List active sessions"""
         user_id = request.query_params.get('userId')
-
-        # Placeholder - in production, query actual session store
-        # For now, return mock data based on user_id
-        sessions = []
+        self._sync_outstanding_tokens()
+        sessions = UserSession.objects.filter(
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).select_related('user')
         if user_id:
-            # Return sessions for specific user
-            sessions = [
-                {
-                    'jti': f'session_{user_id}_1',
-                    'userId': int(user_id),
-                    'device': 'Windows • Chrome',
-                    'ip': '192.168.1.100',
-                    'location': 'VN',
-                    'createdAt': timezone.now().isoformat(),
-                    'lastActiveAt': timezone.now().isoformat()
-                }
-            ]
-        else:
-            # Return all active sessions (limited)
-            sessions = [
-                {
-                    'jti': f'session_{i}',
-                    'userId': i,
-                    'device': 'Windows • Chrome' if i % 2 == 0 else 'Android • Chrome',
-                    'ip': f'192.168.1.{100 + i}',
-                    'location': 'VN',
-                    'createdAt': timezone.now().isoformat(),
-                    'lastActiveAt': timezone.now().isoformat()
-                }
-                for i in range(1, 11)
-            ]
+            sessions = sessions.filter(user_id=user_id)
+        return Response([
+            {
+                'jti': item.jti,
+                'userId': item.user_id,
+                'userEmail': item.user.email,
+                'device': item.device or 'Thiết bị chưa xác định',
+                'ip': item.ip_address or 'Không rõ',
+                'location': '',
+                'createdAt': item.created_at.isoformat(),
+                'lastActiveAt': item.last_active_at.isoformat(),
+                'expiresAt': item.expires_at.isoformat(),
+            }
+            for item in sessions[:100]
+        ], status=status.HTTP_200_OK)
 
-        return Response(sessions, status=status.HTTP_200_OK)
+    def _sync_outstanding_tokens(self):
+        now = timezone.now()
+        tokens = OutstandingToken.objects.filter(
+            expires_at__gt=now,
+            user__isnull=False,
+        ).select_related('user')
+        blacklisted_ids = set(
+            BlacklistedToken.objects.filter(token__in=tokens)
+            .values_list('token_id', flat=True)
+        )
+        for token in tokens:
+            if token.id in blacklisted_ids:
+                UserSession.objects.filter(jti=token.jti, revoked_at__isnull=True).update(
+                    revoked_at=now
+                )
+                continue
+            UserSession.objects.get_or_create(
+                jti=token.jti,
+                defaults={
+                    'user': token.user,
+                    'device': 'Thiết bị chưa xác định',
+                    'created_at': token.created_at,
+                    'last_active_at': token.created_at,
+                    'expires_at': token.expires_at,
+                },
+            )
 
 
 class AdminSessionRevokeView(APIView):
@@ -239,10 +262,29 @@ class AdminSessionRevokeView(APIView):
 
     def delete(self, request, jti):
         """Revoke a session"""
-        # Placeholder - in production, revoke from session store
+        session = UserSession.objects.filter(jti=jti).select_related('user').first()
+        token = OutstandingToken.objects.filter(jti=jti).first()
+        if not session and not token:
+            return Response(
+                {'detail': 'Không tìm thấy phiên đăng nhập.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if token:
+            BlacklistedToken.objects.get_or_create(token=token)
+        now = timezone.now()
+        if session and not session.revoked_at:
+            session.revoked_at = now
+            session.save(update_fields=['revoked_at'])
+        record_admin_action(
+            request=request,
+            action='security.session.revoke',
+            target_type='user_session',
+            target_id=jti,
+            details={'userId': session.user_id if session else token.user_id},
+        )
         return Response({
             'success': True,
-            'message': f'Session {jti} revoked'
+            'message': 'Đã thu hồi phiên đăng nhập.'
         }, status=status.HTTP_200_OK)
 
 

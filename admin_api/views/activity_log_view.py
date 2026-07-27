@@ -1,204 +1,139 @@
-from datetime import datetime, timedelta
-from django.db.models import Q
-from django.core.paginator import Paginator
-from django.utils import timezone
-from rest_framework import status
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from datetime import datetime
+from uuid import UUID
 
+from django.db.models import Q
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from admin_api.models import AdminAuditLog
 from admin_api.permissions import IsAdmin
-from custom_account.models import UserModel
+from custom_account.models import AuthAttempt
 
 
 class AdminActivityLogView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request, log_id=None):
-        """Get activity logs list or detail"""
         if log_id:
-            return self.get_detail(request, log_id)
+            return self.get_detail(log_id)
         return self.get_list(request)
-    
+
     def get_list(self, request):
-        """Get activity logs"""
-        # Placeholder - in production, query actual activity log model
-        # For now, use user login history as placeholder
+        query = (request.query_params.get('q') or '').strip()
+        action_filter = (request.query_params.get('action') or '').strip()
+        user_id = (request.query_params.get('userId') or '').strip()
+        from_date = self._parse_date(request.query_params.get('from'))
+        to_date = self._parse_date(request.query_params.get('to'))
+        page = self._positive_int(request.query_params.get('page'), 1)
+        page_size = min(self._positive_int(request.query_params.get('pageSize'), 20), 100)
 
-        q = request.query_params.get('q', '')
-        action = request.query_params.get('action')
-        user_id = request.query_params.get('userId')
-        from_date = request.query_params.get('from')
-        to_date = request.query_params.get('to')
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('pageSize', 20))
-
-        # Use user model to create activity logs from login history and signups
-        # In production, this should use a dedicated ActivityLog model
-        queryset = UserModel.objects.all()
-
-        if q:
-            queryset = queryset.filter(
-                Q(email__icontains=q) |
-                Q(username__icontains=q)
+        audit_qs = AdminAuditLog.objects.select_related('actor')
+        auth_qs = AuthAttempt.objects.select_related('user')
+        if query:
+            audit_qs = audit_qs.filter(
+                Q(action__icontains=query)
+                | Q(actor__email__icontains=query)
+                | Q(actor__username__icontains=query)
             )
-
+            auth_qs = auth_qs.filter(
+                Q(username_or_email__icontains=query)
+                | Q(user__email__icontains=query)
+            )
+        if action_filter:
+            audit_qs = audit_qs.filter(action__icontains=action_filter)
+            if 'login' not in action_filter:
+                auth_qs = auth_qs.none()
         if user_id:
-            queryset = queryset.filter(id=user_id)
-
-        # Build activity log items from user data
-        items = []
-        for user in queryset:
-            # Get user role label
-            role_label = 'Admin' if user.is_staff or user.role == 'admin' else (
-                'Giáo viên' if user.role == 'instructor' or user.role == 'teacher' else 'Học sinh'
-            )
-            
-            # Add signup activity
-            if user.created_on:
-                items.append({
-                    'id': f"{user.id}_signup",
-                    'userId': str(user.id),
-                    'userEmail': user.email,
-                    'userRole': role_label,  # Add role label
-                    'action': 'user.signup',
-                    'ip': None,  # Not tracked in UserModel
-                    'userAgent': None,  # Not tracked in UserModel
-                    'timestamp': user.created_on.isoformat(),
-                    'status': 'success',
-                    'details': {'role': user.role, 'roleLabel': role_label}
-                })
-            
-            # Add login activity if available
-            if user.last_login:
-                items.append({
-                    'id': f"{user.id}_login",
-                    'userId': str(user.id),
-                    'userEmail': user.email,
-                    'userRole': role_label,  # Add role label
-                    'action': 'user.login',
-                    'ip': None,  # Not tracked in UserModel
-                    'userAgent': None,  # Not tracked in UserModel
-                    'timestamp': user.last_login.isoformat(),
-                    'status': 'success',
-                    'details': {'role': user.role, 'roleLabel': role_label}
-                })
-
-        # Apply date filters
+            audit_qs = audit_qs.filter(actor_id=user_id)
+            auth_qs = auth_qs.filter(user_id=user_id)
         if from_date:
-            try:
-                from_date_obj = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
-                items = [item for item in items if datetime.fromisoformat(item['timestamp'].replace('Z', '+00:00')) >= from_date_obj]
-            except:
-                pass
-        
+            audit_qs = audit_qs.filter(created_at__gte=from_date)
+            auth_qs = auth_qs.filter(created_at__gte=from_date)
         if to_date:
-            try:
-                to_date_obj = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
-                items = [item for item in items if datetime.fromisoformat(item['timestamp'].replace('Z', '+00:00')) <= to_date_obj]
-            except:
-                pass
+            audit_qs = audit_qs.filter(created_at__lte=to_date)
+            auth_qs = auth_qs.filter(created_at__lte=to_date)
 
-        # Apply action filter
-        if action:
-            items = [item for item in items if action in item['action']]
-
-        # Sort by timestamp descending
-        items.sort(key=lambda x: x['timestamp'], reverse=True)
-
-        # Paginate
+        items = [self._audit_item(item) for item in audit_qs[:500]]
+        items.extend(self._auth_item(item) for item in auth_qs[:500])
+        items.sort(key=lambda item: item['timestamp'], reverse=True)
         total = len(items)
         start = (page - 1) * page_size
-        end = start + page_size
-        paginated_items = items[start:end]
-
         return Response({
-            'items': paginated_items,
-            'total': total
+            'items': items[start:start + page_size],
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
         }, status=status.HTTP_200_OK)
 
-    def get_detail(self, request, log_id):
-        """Get detailed activity log by ID"""
-        # Parse log_id format: "{userId}_{action}" or just use it as is
-        try:
-            if '_' in log_id:
-                user_id_str, action_type = log_id.split('_', 1)
-                user_id = int(user_id_str)
-            else:
-                user_id = int(log_id)
-                action_type = None
-            
-            user = UserModel.objects.get(id=user_id)
-            role_label = 'Admin' if user.is_staff or user.role == 'admin' else (
-                'Giáo viên' if user.role == 'instructor' or user.role == 'teacher' else 'Học sinh'
+    def get_detail(self, log_id):
+        object_id = self._parse_uuid(log_id.split(':', 1)[1]) if ':' in log_id else None
+        if log_id.startswith('audit:'):
+            item = (
+                AdminAuditLog.objects.select_related('actor').filter(pk=object_id).first()
+                if object_id else None
             )
-            
-            # Build detailed log item
-            if action_type == 'signup' and user.created_on:
-                log_item = {
-                    'id': f"{user.id}_signup",
-                    'userId': str(user.id),
-                    'userEmail': user.email,
-                    'userRole': role_label,
-                    'action': 'user.signup',
-                    'ip': getattr(user, 'last_login_ip', None),
-                    'userAgent': getattr(user, 'last_login_user_agent', None),
-                    'timestamp': user.created_on.isoformat(),
-                    'status': 'success',
-                    'details': {
-                        'role': user.role,
-                        'roleLabel': role_label,
-                        'username': user.username,
-                        'name': getattr(user, 'display_name', user.username),
-                        'emailVerified': getattr(user, 'email_verified', False),
-                        'createdAt': user.created_on.isoformat(),
-                    }
-                }
-            elif (action_type == 'login' or action_type is None) and user.last_login:
-                log_item = {
-                    'id': f"{user.id}_login",
-                    'userId': str(user.id),
-                    'userEmail': user.email,
-                    'userRole': role_label,
-                    'action': 'user.login',
-                    'ip': getattr(user, 'last_login_ip', None),
-                    'userAgent': getattr(user, 'last_login_user_agent', None),
-                    'timestamp': user.last_login.isoformat(),
-                    'status': 'success',
-                    'details': {
-                        'role': user.role,
-                        'roleLabel': role_label,
-                        'username': user.username,
-                        'name': getattr(user, 'display_name', user.username),
-                        'lastLogin': user.last_login.isoformat(),
-                    }
-                }
-            else:
-                # Fallback: return signup if available
-                if user.created_on:
-                    log_item = {
-                        'id': f"{user.id}_signup",
-                        'userId': str(user.id),
-                        'userEmail': user.email,
-                        'userRole': role_label,
-                        'action': 'user.signup',
-                        'ip': None,
-                        'userAgent': None,
-                        'timestamp': user.created_on.isoformat(),
-                        'status': 'success',
-                        'details': {
-                            'role': user.role,
-                            'roleLabel': role_label,
-                            'username': user.username,
-                        }
-                    }
-                else:
-                    return Response({'error': 'Log not found'}, status=status.HTTP_404_NOT_FOUND)
-            
-            return Response(log_item, status=status.HTTP_200_OK)
-        except (ValueError, UserModel.DoesNotExist):
-            return Response({'error': 'Log not found'}, status=status.HTTP_404_NOT_FOUND)
+            payload = self._audit_item(item) if item else None
+        elif log_id.startswith('auth:'):
+            item = (
+                AuthAttempt.objects.select_related('user').filter(pk=object_id).first()
+                if object_id else None
+            )
+            payload = self._auth_item(item) if item else None
+        else:
+            payload = None
+        if not payload:
+            return Response(
+                {'detail': 'Không tìm thấy nhật ký hoạt động.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
 
+    def _audit_item(self, item):
+        if not item:
+            return None
+        return {
+            'id': f'audit:{item.id}',
+            'userId': str(item.actor_id or ''),
+            'userEmail': item.actor.email if item.actor else 'Hệ thống',
+            'action': item.action,
+            'timestamp': item.created_at.isoformat(),
+            'status': item.status,
+            'ip': item.ip_address,
+            'userAgent': item.user_agent,
+            'details': item.details,
+        }
 
+    def _auth_item(self, item):
+        return {
+            'id': f'auth:{item.id}',
+            'userId': str(item.user_id or ''),
+            'userEmail': item.user.email if item.user else item.username_or_email,
+            'action': 'user.login' if item.success else 'user.login_failed',
+            'timestamp': item.created_at.isoformat(),
+            'status': 'success' if item.success else 'failed',
+            'ip': item.ip_address,
+            'userAgent': item.user_agent,
+            'details': {'error': item.error} if item.error else {},
+        }
 
+    def _parse_date(self, value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        except (TypeError, ValueError):
+            return None
 
+    def _positive_int(self, value, default):
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return default
+
+    def _parse_uuid(self, value):
+        try:
+            return UUID(str(value))
+        except (TypeError, ValueError, AttributeError):
+            return None

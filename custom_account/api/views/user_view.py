@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
+from admin_api.services import record_admin_action
 from custom_account.models import UserModel
 from custom_account.domains.user_domain import UserDomain
 from custom_account.api.dtos.user_dto import UpdateUserInput, UserPublicOutput, UserAdminOutput, UserInput
@@ -253,6 +254,13 @@ class AdminUserListView(RoleBasedOutputMixin, APIView):
                     created_user.is_staff = True
                     created_user.save(update_fields=['is_staff'])
                 new_user_domain = UserDomain.from_model(created_user)
+            record_admin_action(
+                request=request,
+                action='user.create',
+                target_type='user',
+                target_id=new_user_domain.id,
+                details={'role': new_user_domain.role},
+            )
             
             # Serialize DTO -> JSON 
             return Response(
@@ -336,6 +344,13 @@ class AdminUserDetailView(RoleBasedOutputMixin, APIView):
                 user_id=instance.id, 
                 updates=updates_payload
             )
+            record_admin_action(
+                request=request,
+                action='user.update',
+                target_type='user',
+                target_id=instance.id,
+                details={'fields': sorted(updates_payload.keys())},
+            )
             
             # Return the Domain Entity for the mixin to process
             return Response({"instance": updated_domain}, status=status.HTTP_200_OK)
@@ -356,6 +371,12 @@ class AdminUserDetailView(RoleBasedOutputMixin, APIView):
         try:
             # Delegate the deletion logic to the application service
             self.user_service.delete_user(user_id=instance.id)
+            record_admin_action(
+                request=request,
+                action='user.delete',
+                target_type='user',
+                target_id=instance.id,
+            )
             
             return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -20,7 +20,14 @@ from custom_account.serializers import (
     ResetPasswordSerializer,
     PasswordResetRequestSerializer,
 )
-from custom_account.services import user_service, auth_service, profile_service, login_otp_service, login_security_service
+from custom_account.services import (
+    user_service,
+    auth_service,
+    profile_service,
+    login_otp_service,
+    login_security_service,
+    session_tracking,
+)
 from custom_account.services.exceptions import DomainError
 
 
@@ -214,6 +221,7 @@ class CustomLoginView(APIView):
             profile = profile_service.create_default_profile(user.id)
 
         refresh = RefreshToken.for_user(user)
+        session_tracking.register_session(user=user, refresh=refresh, request=request)
         role = "admin" if user.is_staff else (user.role or "student")
         response_data = {
             "refresh": str(refresh),
@@ -325,6 +333,11 @@ class AdminLoginAsUserView(APIView):
             
         # Generate tokens for the specified user
         refresh = RefreshToken.for_user(user_to_login)
+        session_tracking.register_session(
+            user=user_to_login,
+            refresh=refresh,
+            request=request,
+        )
              
         try:
             # Validate the Django user model against the Pydantic DTO
