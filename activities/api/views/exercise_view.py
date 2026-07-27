@@ -37,6 +37,10 @@ from activities.services import (
     export_results_csv,
 )
 from activities.services import ServiceError, NotFoundError, ValidationError, PermissionDenied
+from activities.services.ai_question_generator import (
+    normalize_ai_questions,
+    parse_ai_questions,
+)
 from activities.api.permissions import IsAdminOrReadOnly
 import os
 import time
@@ -219,6 +223,9 @@ class GenerateQuestionsAIView(APIView):
 
     MAX_FILE_BYTES = 20 * 1024 * 1024
     MAX_TEXT_CHARS = 15000
+    MAX_QUESTIONS = 30
+    BATCH_SIZE = 8
+    EXTRA_GENERATION_CALLS = 3
 
     def post(self, request: Request):
         upload = request.FILES.get("file")
@@ -251,7 +258,13 @@ class GenerateQuestionsAIView(APIView):
             extracted_text = extracted_text[: self.MAX_TEXT_CHARS]
 
         level = request.data.get("level", "")
-        count = int(request.data.get("count") or 5)
+        try:
+            count = int(request.data.get("count") or 10)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Số câu hỏi phải là một số từ 1 đến 30."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         model = (
             request.data.get("model")
             or os.getenv("OPENROUTER_MODEL")
@@ -259,12 +272,74 @@ class GenerateQuestionsAIView(APIView):
             or "openai/gpt-4o"
         )
 
-        count = max(1, min(count, 10))
+        count = max(1, min(count, self.MAX_QUESTIONS))
+        questions = []
+        seen_prompts = set()
+        errors = []
+        model_used = model
+        minimum_calls = (count + self.BATCH_SIZE - 1) // self.BATCH_SIZE
+        max_calls = minimum_calls + self.EXTRA_GENERATION_CALLS
 
-        prompt = (
+        for _ in range(max_calls):
+            remaining = count - len(questions)
+            if remaining <= 0:
+                break
+            batch_count = min(self.BATCH_SIZE, remaining)
+            prompt = self._generation_prompt(
+                extracted_text,
+                level,
+                batch_count,
+                [item["text"] for item in questions],
+            )
+            ai_result = self._call_openrouter_api(
+                prompt,
+                model=model,
+                expected_count=batch_count,
+            )
+            if ai_result.get("error"):
+                errors.append(ai_result["error"])
+                if len(errors) >= 2:
+                    break
+                continue
+            model_used = ai_result.get("model", model_used)
+            candidates = parse_ai_questions(ai_result.get("text", ""))
+            questions.extend(normalize_ai_questions(
+                candidates,
+                seen_prompts=seen_prompts,
+                limit=remaining,
+            ))
+
+        if not questions:
+            detail = errors[-1] if errors else "AI chưa tạo được câu hỏi hợp lệ."
+            return Response({"detail": detail}, status=status.HTTP_502_BAD_GATEWAY)
+
+        questions = questions[:count]
+        complete = len(questions) == count
+        return Response({
+            "model": model_used,
+            "questions": questions,
+            "requestedCount": count,
+            "generatedCount": len(questions),
+            "complete": complete,
+            "warning": "" if complete else (
+                f"AI chỉ tạo được {len(questions)}/{count} câu hợp lệ. "
+                "Bạn có thể thử lại với tài liệu rõ ràng hơn."
+            ),
+        })
+
+    def _generation_prompt(self, extracted_text, level, count, existing_questions):
+        avoid_repeats = ""
+        if existing_questions:
+            recent = existing_questions[-30:]
+            avoid_repeats = (
+                "\nKHÔNG được lặp lại các câu đã tạo sau:\n- "
+                + "\n- ".join(recent)
+                + "\n"
+            )
+        return (
             f"Bạn là trợ lý tạo đề thi tiểu học. Dưới đây là nội dung một tài liệu bài học"
             f", phù hợp trình độ \"{level or 'Tiểu học'}\".\n"
-            f"Hãy dựa vào ĐÚNG nội dung tài liệu này để tạo {count} câu hỏi trắc nghiệm."
+            f"Hãy dựa vào ĐÚNG nội dung tài liệu này để tạo CHÍNH XÁC {count} câu hỏi trắc nghiệm."
             " Không được bịa thông tin ngoài tài liệu.\n\n"
             "=== NỘI DUNG TÀI LIỆU ===\n"
             f"{extracted_text}\n"
@@ -273,6 +348,9 @@ class GenerateQuestionsAIView(APIView):
             "- CHỈ tạo câu hỏi loại 'single' (trắc nghiệm 1 đáp án đúng) hoặc 'boolean' (đúng/sai).\n"
             "- Mỗi câu hỏi 'single' phải có 3-4 choices và correct_indices chứa index đáp án đúng.\n"
             "- Câu hỏi 'boolean' có correct_answer là true hoặc false.\n\n"
+            "- Không để trống câu hỏi, không để trống phương án, không lặp phương án.\n"
+            "- Không đánh số thứ tự ở đầu nội dung câu hỏi.\n"
+            f"{avoid_repeats}\n"
             "Trả về JSON thuần (KHÔNG có markdown code block):\n"
             "{\n"
             '  "questions": [\n'
@@ -281,16 +359,6 @@ class GenerateQuestionsAIView(APIView):
             "  ]\n"
             "}\n"
         )
-
-        ai_result = self._call_openrouter_api(prompt, model=model)
-        if ai_result.get("error"):
-            return Response({"detail": ai_result["error"]}, status=status.HTTP_502_BAD_GATEWAY)
-
-        return Response({
-            "model": ai_result.get("model", model),
-            "text": ai_result.get("text", ""),
-            "raw": ai_result.get("raw", {}),
-        })
 
     def _extract_text(self, upload) -> str:
         name = (getattr(upload, "name", "") or "").lower()
@@ -321,7 +389,7 @@ class GenerateQuestionsAIView(APIView):
         raise ValueError("Định dạng tài liệu không được hỗ trợ (chỉ PDF, DOCX, TXT).")
 
 
-    def _call_openrouter_api(self, prompt, model):
+    def _call_openrouter_api(self, prompt, model, expected_count=5):
         """Gọi OpenRouter API để tạo câu hỏi"""
         api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
@@ -346,10 +414,11 @@ class GenerateQuestionsAIView(APIView):
                 json={
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 2048,
+                    "max_tokens": max(2400, min(6000, expected_count * 550)),
+                    "temperature": 0.2,
                     "stream": False,
                 },
-                timeout=60,
+                timeout=90,
             )
 
             if resp.status_code == 200:
