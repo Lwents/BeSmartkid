@@ -4,15 +4,10 @@ from .course_admin_view import (
     AdminCourseApproveView, AdminCourseRejectView,
     AdminCoursePublishView, AdminCourseUnpublishView,
     AdminCourseArchiveView, AdminCourseRestoreView,
-    AdminCourseBulkActionView
-)
-from .transaction_admin_view import (
-    AdminTransactionListView, AdminTransactionDetailView,
-    AdminTransactionMetricsView, AdminTransactionRefundView,
-    AdminTransactionDisputeView, AdminTransactionExportView
+    AdminCourseBulkActionView, AdminLessonVideoDeleteView
 )
 from .report_admin_view import (
-    AdminRevenueReportView, AdminUserReportView,
+    AdminUserReportView,
     AdminLearningReportView, AdminContentReportView
 )
 from .system_admin_view import (
@@ -43,11 +38,8 @@ __all__ = [
     'AdminCourseApproveView', 'AdminCourseRejectView',
     'AdminCoursePublishView', 'AdminCourseUnpublishView',
     'AdminCourseArchiveView', 'AdminCourseRestoreView',
-    'AdminCourseBulkActionView',
-    'AdminTransactionListView', 'AdminTransactionDetailView',
-    'AdminTransactionMetricsView', 'AdminTransactionRefundView',
-    'AdminTransactionDisputeView', 'AdminTransactionExportView',
-    'AdminRevenueReportView', 'AdminUserReportView',
+    'AdminCourseBulkActionView', 'AdminLessonVideoDeleteView',
+    'AdminUserReportView',
     'AdminLearningReportView', 'AdminContentReportView',
     'AdminSystemConfigView', 'AdminSystemBackupView',
     'AdminSystemRestoreView', 'AdminSystemAuditView',
@@ -64,5 +56,3 @@ __all__ = [
     'AdminNotificationReadView',
     'AdminNotificationReadAllView',
 ]
-
-

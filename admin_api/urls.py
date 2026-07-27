@@ -5,11 +5,8 @@ from admin_api.views import (
     AdminCourseApproveView, AdminCourseRejectView,
     AdminCoursePublishView, AdminCourseUnpublishView,
     AdminCourseArchiveView, AdminCourseRestoreView,
-    AdminCourseBulkActionView,
-    AdminTransactionListView, AdminTransactionDetailView,
-    AdminTransactionMetricsView, AdminTransactionRefundView,
-    AdminTransactionDisputeView, AdminTransactionExportView,
-    AdminRevenueReportView, AdminUserReportView,
+    AdminCourseBulkActionView, AdminLessonVideoDeleteView,
+    AdminUserReportView,
     AdminLearningReportView, AdminContentReportView,
     AdminSystemConfigView, AdminSystemBackupView,
     AdminSystemRestoreView, AdminSystemAuditView,
@@ -45,6 +42,11 @@ urlpatterns = [
     # Courses
     path('courses/', AdminCourseListView.as_view(), name='course-list'),
     path('courses/<uuid:pk>/', AdminCourseDetailView.as_view(), name='course-detail'),
+    path(
+        'courses/<uuid:pk>/lessons/<uuid:lesson_id>/video/',
+        AdminLessonVideoDeleteView.as_view(),
+        name='course-lesson-video-delete',
+    ),
     path('courses/<uuid:pk>/approve/', AdminCourseApproveView.as_view(), name='course-approve'),
     path('courses/<uuid:pk>/reject/', AdminCourseRejectView.as_view(), name='course-reject'),
     path('courses/<uuid:pk>/publish/', AdminCoursePublishView.as_view(), name='course-publish'),
@@ -53,16 +55,7 @@ urlpatterns = [
     path('courses/<uuid:pk>/restore/', AdminCourseRestoreView.as_view(), name='course-restore'),
     path('courses/bulk/', AdminCourseBulkActionView.as_view(), name='course-bulk'),
 
-    # Transactions
-    path('transactions/', AdminTransactionListView.as_view(), name='transaction-list'),
-    path('transactions/<uuid:pk>/', AdminTransactionDetailView.as_view(), name='transaction-detail'),
-    path('transactions/metrics/', AdminTransactionMetricsView.as_view(), name='transaction-metrics'),
-    path('transactions/<uuid:pk>/refund/', AdminTransactionRefundView.as_view(), name='transaction-refund'),
-    path('transactions/<uuid:pk>/dispute/', AdminTransactionDisputeView.as_view(), name='transaction-dispute'),
-    path('transactions/export/', AdminTransactionExportView.as_view(), name='transaction-export'),
-
     # Reports
-    path('reports/revenue/', AdminRevenueReportView.as_view(), name='report-revenue'),
     path('reports/users/', AdminUserReportView.as_view(), name='report-users'),
     path('reports/learning/', AdminLearningReportView.as_view(), name='report-learning'),
     path('reports/content/', AdminContentReportView.as_view(), name='report-content'),
@@ -96,5 +89,3 @@ urlpatterns = [
     # AI Settings (hidden)
     path('system/ai-settings/', AdminAISettingsView.as_view(), name='ai-settings'),
 ]
-
-

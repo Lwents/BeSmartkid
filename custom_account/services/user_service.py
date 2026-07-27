@@ -2,11 +2,12 @@ import logging
 from typing import Optional, Any, Dict, List
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from custom_account.domains.user_domain import UserDomain
 from custom_account.domains.reset_password_domain import ResetPasswordDomain
 from custom_account.models import UserModel
-from custom_account.models import Profile
+from custom_account.models import Profile, UserSession
 from custom_account.services.exceptions import DomainError, UserNotFoundError, IncorrectPasswordError
 from custom_account.services.profile_service import default_profile_metadata
 
@@ -82,6 +83,17 @@ def admin_set_password(user_id: int, new_password: str):
     user.set_password(new_password)
     user.save(update_fields=["password"])
 
+    revoked_tokens = 0
+    if OutstandingToken:
+        for token in OutstandingToken.objects.filter(user=user):
+            if BlacklistedToken:
+                _blacklist, created = BlacklistedToken.objects.get_or_create(token=token)
+                revoked_tokens += int(created)
+    UserSession.objects.filter(user=user, revoked_at__isnull=True).update(
+        revoked_at=timezone.now()
+    )
+    return revoked_tokens
+
 
 def reset_password(domain: ResetPasswordDomain) -> bool:
     """Reset password using reset token (stub)."""
@@ -118,6 +130,10 @@ def update_user(user_id: int, updates: Dict[str, Any]) -> UserDomain:
     user = UserModel.objects.get(pk=user_id)
     domain = UserDomain.from_model(user)
 
+    role = updates.get('role')
+    if role is not None:
+        updates['is_staff'] = role == 'admin'
+
     # Áp dụng updates và validate
     domain.apply_updates(updates)
 
@@ -126,7 +142,7 @@ def update_user(user_id: int, updates: Dict[str, Any]) -> UserDomain:
         if hasattr(user, key):
             setattr(user, key, value)
     user.save()
-    return domain
+    return UserDomain.from_model(user)
 
 
 def deactivate_user(user_id: int) -> bool:
@@ -183,7 +199,8 @@ def list_all_users_for_admin(
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
     sort_by: str = 'created_on',
-    sort_dir: str = 'descending'
+    sort_dir: str = 'descending',
+    exclude_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Gets all users as a list of UserDomain entities with pagination and filtering.
@@ -209,7 +226,8 @@ def list_all_users_for_admin(
         'id', 'username', 'email', 'role', 'is_staff', 'is_active', 
         'phone', 'created_on', 'updated_on', 'last_login'
     )
-    queryset = queryset.exclude(Q(is_staff=True) | Q(role='admin'))
+    if exclude_user_id is not None:
+        queryset = queryset.exclude(pk=exclude_user_id)
     
     # Search by q (username, email)
     if q:

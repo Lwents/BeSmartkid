@@ -15,6 +15,14 @@ from custom_account.models import SecurityPolicy, UserSession
 class AdminSecurityPolicyView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    INTEGER_RANGES = {
+        'rateLimit.loginFailures': (1, 50),
+        'rateLimit.windowMin': (1, 1440),
+        'lockout.attempts': (1, 50),
+        'lockout.lockMinutes': (1, 10080),
+        'lockout.banStrikes': (1, 50),
+    }
+
     def get(self, request):
         """Get security policy"""
         policy = SecurityPolicy.get_current()
@@ -41,13 +49,16 @@ class AdminSecurityPolicyView(APIView):
     def post(self, request):
         """Update security policy"""
         payload = request.data or {}
+        errors = self._validate_payload(payload)
+        if errors:
+            return Response(
+                {
+                    'detail': 'Một số chính sách bảo mật chưa hợp lệ.',
+                    'errors': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         policy = SecurityPolicy.get_current()
-
-        def parse_int(value, default):
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return default
 
         twofa = payload.get('twoFA') or {}
         rate_limit = payload.get('rateLimit') or {}
@@ -55,23 +66,23 @@ class AdminSecurityPolicyView(APIView):
 
         if isinstance(twofa, dict):
             if 'enforceAdmin' in twofa:
-                policy.twofa_enforce_admin = bool(twofa.get('enforceAdmin'))
+                policy.twofa_enforce_admin = twofa.get('enforceAdmin')
             if 'enforceTeacher' in twofa:
-                policy.twofa_enforce_teacher = bool(twofa.get('enforceTeacher'))
+                policy.twofa_enforce_teacher = twofa.get('enforceTeacher')
 
         if isinstance(rate_limit, dict):
             if 'loginFailures' in rate_limit:
-                policy.rate_limit_login_failures = max(parse_int(rate_limit.get('loginFailures'), policy.rate_limit_login_failures), 1)
+                policy.rate_limit_login_failures = rate_limit.get('loginFailures')
             if 'windowMin' in rate_limit:
-                policy.rate_limit_window_min = max(parse_int(rate_limit.get('windowMin'), policy.rate_limit_window_min), 1)
+                policy.rate_limit_window_min = rate_limit.get('windowMin')
 
         if isinstance(lockout, dict):
             if 'attempts' in lockout:
-                policy.lockout_attempts = max(parse_int(lockout.get('attempts'), policy.lockout_attempts), 1)
+                policy.lockout_attempts = lockout.get('attempts')
             if 'lockMinutes' in lockout:
-                policy.lockout_minutes = max(parse_int(lockout.get('lockMinutes'), policy.lockout_minutes), 1)
+                policy.lockout_minutes = lockout.get('lockMinutes')
             if 'banStrikes' in lockout:
-                policy.lockout_ban_strikes = max(parse_int(lockout.get('banStrikes'), policy.lockout_ban_strikes), 1)
+                policy.lockout_ban_strikes = lockout.get('banStrikes')
 
         if 'rbacNote' in payload:
             policy.rbac_note = payload.get('rbacNote') or ''
@@ -103,6 +114,62 @@ class AdminSecurityPolicyView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+    patch = post
+
+    def _validate_payload(self, payload):
+        errors = {}
+        if not isinstance(payload, dict):
+            return {'policy': 'Chính sách phải là một nhóm giá trị.'}
+        allowed = {'twoFA', 'rateLimit', 'lockout', 'rbacNote'}
+        for key in payload:
+            if key not in allowed:
+                errors[key] = 'Trường chính sách không được hỗ trợ.'
+
+        twofa = payload.get('twoFA')
+        if twofa is not None:
+            self._validate_group(twofa, 'twoFA', {'enforceAdmin', 'enforceTeacher'}, errors)
+            if isinstance(twofa, dict):
+                for key, value in twofa.items():
+                    if key in {'enforceAdmin', 'enforceTeacher'} and not isinstance(value, bool):
+                        errors[f'twoFA.{key}'] = 'Giá trị phải là bật hoặc tắt.'
+
+        for group_name, allowed_keys in (
+            ('rateLimit', {'loginFailures', 'windowMin'}),
+            ('lockout', {'attempts', 'lockMinutes', 'banStrikes'}),
+        ):
+            group = payload.get(group_name)
+            if group is None:
+                continue
+            self._validate_group(group, group_name, allowed_keys, errors)
+            if not isinstance(group, dict):
+                continue
+            for key, value in group.items():
+                path = f'{group_name}.{key}'
+                if key not in allowed_keys:
+                    continue
+                if not isinstance(value, int) or isinstance(value, bool):
+                    errors[path] = 'Giá trị phải là số nguyên.'
+                    continue
+                lower, upper = self.INTEGER_RANGES[path]
+                if value < lower or value > upper:
+                    errors[path] = f'Giá trị phải từ {lower} đến {upper}.'
+
+        if 'rbacNote' in payload:
+            note = payload.get('rbacNote')
+            if not isinstance(note, str):
+                errors['rbacNote'] = 'Ghi chú phải là văn bản.'
+            elif len(note) > 1000:
+                errors['rbacNote'] = 'Ghi chú không được vượt quá 1000 ký tự.'
+        return errors
+
+    def _validate_group(self, value, name, allowed_keys, errors):
+        if not isinstance(value, dict):
+            errors[name] = 'Phần chính sách này phải là một nhóm giá trị.'
+            return
+        for key in value:
+            if key not in allowed_keys:
+                errors[f'{name}.{key}'] = 'Trường chính sách không được hỗ trợ.'
 
 
 class AdminIpAllowListView(APIView):

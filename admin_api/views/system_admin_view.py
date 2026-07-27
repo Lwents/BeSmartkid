@@ -1,7 +1,10 @@
 import shutil
+import re
 from uuid import UUID
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
+from django.core.validators import validate_email
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.views import APIView
@@ -23,6 +26,30 @@ except ImportError:
 class AdminSystemConfigView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    INTEGER_RANGES = {
+        'domainEmail.smtp.port': (1, 65535),
+        'authSession.idleTimeoutMin': (1, 1440),
+        'authSession.maxSessionHours': (1, 720),
+        'authSession.rememberMeDays': (0, 365),
+        'authSession.passwordPolicy.minLength': (6, 128),
+        'backup.retentionDays': (1, 3650),
+        'backup.rpoMinutes': (1, 10080),
+        'backup.rtoMinutes': (1, 10080),
+        'maintenance.window.dayOfWeek': (0, 6),
+        'logging.retentionDays': (1, 3650),
+    }
+    CHOICES = {
+        'brand.language': {'vi', 'en'},
+        'brand.currency': {'VND', 'USD'},
+        'backup.schedule': {'daily', 'weekly', 'manual'},
+        'integrations.storage.provider': {'local', 's3'},
+        'logging.level': {'debug', 'info', 'warning', 'error'},
+    }
+    REQUIRED_STRINGS = {
+        'brand.siteName', 'brand.language', 'brand.timezone', 'brand.currency',
+        'domainEmail.domain',
+    }
+
     def get(self, request):
         """Get system configuration"""
         config, _ = SystemConfiguration.objects.get_or_create(
@@ -42,8 +69,27 @@ class AdminSystemConfigView(APIView):
         payload.pop('version', None)
         payload.pop('updatedBy', None)
         payload.pop('updatedAt', None)
-        config, _ = SystemConfiguration.objects.get_or_create(pk=1)
-        config.data = payload
+        errors = {}
+        self._validate_node(payload, self._get_default_config(), '', errors)
+        if errors:
+            return Response(
+                {
+                    'detail': 'Một số cấu hình chưa hợp lệ. Vui lòng kiểm tra lại.',
+                    'errors': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        config, _ = SystemConfiguration.objects.get_or_create(
+            pk=1,
+            defaults={'data': self._get_default_config()},
+        )
+        config.data = self._without_legacy_payments(
+            self._deep_merge(
+                self._deep_merge(self._get_default_config(), config.data or {}),
+                payload,
+            )
+        )
         config.version += 1
         config.updated_by = request.user
         config.save()
@@ -56,12 +102,80 @@ class AdminSystemConfigView(APIView):
         )
         return Response(self._serialize(config), status=status.HTTP_200_OK)
 
+    patch = post
+
     def _serialize(self, config):
-        payload = dict(config.data or {})
+        payload = self._without_legacy_payments(
+            self._deep_merge(self._get_default_config(), config.data or {})
+        )
         payload['version'] = config.version
         payload['updatedBy'] = config.updated_by.email if config.updated_by else ''
         payload['updatedAt'] = config.updated_at.isoformat()
         return payload
+
+    def _validate_node(self, value, schema, path, errors):
+        if not isinstance(value, dict):
+            errors[path or 'config'] = 'Phần cấu hình này phải là một nhóm giá trị.'
+            return
+        for key, child in value.items():
+            child_path = f'{path}.{key}' if path else key
+            if key not in schema:
+                errors[child_path] = 'Trường cấu hình không được hỗ trợ.'
+                continue
+            expected = schema[key]
+            if isinstance(expected, dict):
+                self._validate_node(child, expected, child_path, errors)
+            else:
+                self._validate_scalar(child, expected, child_path, errors)
+
+    def _validate_scalar(self, value, expected, path, errors):
+        if isinstance(expected, bool):
+            if not isinstance(value, bool):
+                errors[path] = 'Giá trị phải là bật hoặc tắt.'
+            return
+        if isinstance(expected, int):
+            if not isinstance(value, int) or isinstance(value, bool):
+                errors[path] = 'Giá trị phải là số nguyên.'
+                return
+            lower, upper = self.INTEGER_RANGES.get(path, (0, 1000000))
+            if value < lower or value > upper:
+                errors[path] = f'Giá trị phải từ {lower} đến {upper}.'
+            return
+        if not isinstance(value, str):
+            errors[path] = 'Giá trị phải là văn bản.'
+            return
+        normalized = value.strip()
+        if path in self.REQUIRED_STRINGS and not normalized:
+            errors[path] = 'Không được để trống.'
+        elif len(value) > 1000:
+            errors[path] = 'Nội dung không được vượt quá 1000 ký tự.'
+        elif path in self.CHOICES and value not in self.CHOICES[path]:
+            errors[path] = 'Giá trị không nằm trong danh sách được hỗ trợ.'
+        elif path in {'maintenance.window.start', 'maintenance.window.end'} \
+                and not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', value):
+            errors[path] = 'Thời gian phải theo định dạng HH:mm.'
+        elif path == 'domainEmail.smtp.fromEmail' and normalized:
+            try:
+                validate_email(normalized)
+            except DjangoValidationError:
+                if not re.fullmatch(r'[^@\s]+@[A-Za-z0-9-]+', normalized):
+                    errors[path] = 'Địa chỉ email chưa hợp lệ.'
+
+    def _deep_merge(self, base, patch):
+        merged = dict(base or {})
+        for key, value in (patch or {}).items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = self._deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
+
+    def _without_legacy_payments(self, data):
+        cleaned = dict(data or {})
+        integrations = dict(cleaned.get('integrations') or {})
+        integrations.pop('payments', None)
+        cleaned['integrations'] = integrations
+        return cleaned
 
     def _get_default_config(self):
         """Get default system configuration"""
@@ -119,12 +233,6 @@ class AdminSystemConfigView(APIView):
                 }
             },
             'integrations': {
-                'payments': {
-                    'momo': True,
-                    'vnpay': True,
-                    'qr': True,
-                    'bank': True
-                },
                 'analytics': {
                     'ga4MeasurementId': ''
                 },
@@ -142,9 +250,6 @@ class AdminSystemConfigView(APIView):
                 'retentionDays': 90,
                 'traceIdEnabled': True
             },
-            'version': 0,
-            'updatedBy': '',
-            'updatedAt': timezone.now().isoformat()
         }
 
 

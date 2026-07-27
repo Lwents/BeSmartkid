@@ -82,7 +82,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/account/', include("custom_account.urls")),
     path('api/ai_personalization/', include('ai_personalization.urls')),
-    path('api/payments/', include('payments.urls')),
     path('api/content/', include('content.urls')),
     path('api/activities/', include('activities.urls')),
     path('api/events/', include('events.api.urls')),

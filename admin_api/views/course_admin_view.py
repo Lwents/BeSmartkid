@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
 from rest_framework import status
@@ -6,8 +7,37 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from admin_api.permissions import IsAdmin
+from admin_api.services import record_admin_action
 from content.models import Course, Subject, Module, Lesson, Enrollment
 from custom_account.models import UserModel
+
+
+def _course_status(course):
+    if course.archived:
+        return 'archived'
+    return 'published' if course.published else 'draft'
+
+
+def _update_course_state(request, pk, action, published, archived=False):
+    try:
+        course = Course.objects.get(id=pk)
+    except Course.DoesNotExist:
+        return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    course.published = published
+    course.archived = archived
+    course.save(update_fields=['published', 'archived', 'updated_on'])
+    record_admin_action(
+        request=request,
+        action=f'course.{action}',
+        target_type='course',
+        target_id=course.id,
+        details={'title': course.title, 'status': _course_status(course)},
+    )
+    return Response({
+        'success': True,
+        'status': _course_status(course),
+    }, status=status.HTTP_200_OK)
 
 
 class AdminCourseListView(APIView):
@@ -51,10 +81,11 @@ class AdminCourseListView(APIView):
 
         if status_filter:
             if status_filter == 'published':
-                queryset = queryset.filter(published=True)
+                queryset = queryset.filter(published=True, archived=False)
             elif status_filter == 'draft':
-                queryset = queryset.filter(published=False)
-            # Add more status filters as needed
+                queryset = queryset.filter(published=False, archived=False)
+            elif status_filter == 'archived':
+                queryset = queryset.filter(archived=True)
 
         # Date filtering using created_on field
         if from_date:
@@ -89,7 +120,7 @@ class AdminCourseListView(APIView):
                 'teacherName': course.owner.email if hasattr(course.owner, 'email') and course.owner.email else course.owner.username if course.owner else 'N/A',
                 'lessonsCount': getattr(course, 'lessons_count', 0),
                 'enrollments': getattr(course, 'enrollments_count', 0),
-                'status': 'published' if course.published else 'draft',
+                'status': _course_status(course),
                 'createdAt': course.created_on.isoformat() if getattr(course, 'created_on', None) else None,
                 'updatedAt': course.updated_on.isoformat() if getattr(course, 'updated_on', None) else None,
                 'thumbnail': thumbnail_url
@@ -122,8 +153,11 @@ class AdminCourseDetailView(APIView):
                     'id': str(lesson.id),
                     'title': lesson.title,
                     'type': lesson.content_type,
-                    'durationMinutes': None,  # Placeholder
-                    'isPreview': False  # Placeholder
+                    'published': lesson.published,
+                    'hasVideo': bool(lesson.video_file or lesson.video_url),
+                    'videoSource': 'file' if lesson.video_file else (
+                        'link' if lesson.video_url else ''
+                    ),
                 })
             sections.append({
                 'id': str(module.id),
@@ -150,12 +184,10 @@ class AdminCourseDetailView(APIView):
             'teacherName': course.owner.email if course.owner else 'N/A',
             'lessonsCount': sum(len(s['lessons']) for s in sections),
             'enrollments': enrollments_count,
-            'status': 'published' if course.published else 'draft',
+            'status': _course_status(course),
             'createdAt': course.created_on.isoformat() if getattr(course, 'created_on', None) else None,
             'updatedAt': course.updated_on.isoformat() if getattr(course, 'updated_on', None) else None,
             'thumbnail': thumbnail_url,
-            'level': None,  # Placeholder
-            'durationMinutes': None,  # Placeholder
             'sections': sections
         }, status=status.HTTP_200_OK)
 
@@ -170,20 +202,67 @@ class AdminCourseDetailView(APIView):
         return Response({'success': True}, status=status.HTTP_204_NO_CONTENT)
 
 
+class AdminLessonVideoDeleteView(APIView):
+    """Allow admins to remove a lesson video without deleting the lesson itself."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @transaction.atomic
+    def delete(self, request, pk, lesson_id):
+        try:
+            lesson = Lesson.objects.select_related('module__course').get(
+                id=lesson_id,
+                module__course_id=pk,
+            )
+        except Lesson.DoesNotExist:
+            return Response(
+                {'detail': 'Không tìm thấy video trong khóa học này.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not lesson.video_file and not lesson.video_url:
+            return Response(
+                {'detail': 'Bài học này không còn video để xóa.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        removed_source = str(lesson.video_file or lesson.video_url or '')
+        if lesson.video_file:
+            lesson.video_file.delete(save=False)
+        lesson.video_file = None
+        lesson.video_url = None
+        lesson.video_transcript = None
+        update_fields = ['video_file', 'video_url', 'video_transcript']
+
+        # Video lessons without a video must not remain visible to students.
+        if lesson.content_type == 'video' and lesson.published:
+            lesson.published = False
+            update_fields.append('published')
+        lesson.save(update_fields=update_fields)
+
+        record_admin_action(
+            request=request,
+            action='lesson.video.delete',
+            target_type='lesson',
+            target_id=lesson.id,
+            details={
+                'courseId': str(pk),
+                'lessonTitle': lesson.title,
+                'source': removed_source,
+            },
+        )
+        return Response({
+            'success': True,
+            'lessonId': str(lesson.id),
+            'published': lesson.published,
+        }, status=status.HTTP_200_OK)
+
+
 class AdminCourseApproveView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def post(self, request, pk):
         """Approve a course"""
-        try:
-            course = Course.objects.get(id=pk)
-        except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        course.published = True
-        course.save()
-
-        return Response({'success': True}, status=status.HTTP_200_OK)
+        return _update_course_state(request, pk, 'approve', published=True)
 
 
 class AdminCourseRejectView(APIView):
@@ -191,16 +270,7 @@ class AdminCourseRejectView(APIView):
 
     def post(self, request, pk):
         """Reject a course"""
-        try:
-            course = Course.objects.get(id=pk)
-        except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        # Could add a rejection reason field
-        course.published = False
-        course.save()
-
-        return Response({'success': True}, status=status.HTTP_200_OK)
+        return _update_course_state(request, pk, 'reject', published=False)
 
 
 class AdminCoursePublishView(APIView):
@@ -208,15 +278,7 @@ class AdminCoursePublishView(APIView):
 
     def post(self, request, pk):
         """Publish a course"""
-        try:
-            course = Course.objects.get(id=pk)
-        except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        course.published = True
-        course.save()
-
-        return Response({'success': True}, status=status.HTTP_200_OK)
+        return _update_course_state(request, pk, 'publish', published=True)
 
 
 class AdminCourseUnpublishView(APIView):
@@ -224,15 +286,7 @@ class AdminCourseUnpublishView(APIView):
 
     def post(self, request, pk):
         """Unpublish a course"""
-        try:
-            course = Course.objects.get(id=pk)
-        except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        course.published = False
-        course.save()
-
-        return Response({'success': True}, status=status.HTTP_200_OK)
+        return _update_course_state(request, pk, 'unpublish', published=False)
 
 
 class AdminCourseArchiveView(APIView):
@@ -240,16 +294,9 @@ class AdminCourseArchiveView(APIView):
 
     def post(self, request, pk):
         """Archive a course"""
-        try:
-            course = Course.objects.get(id=pk)
-        except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        # Could add an archived field
-        course.published = False
-        course.save()
-
-        return Response({'success': True}, status=status.HTTP_200_OK)
+        return _update_course_state(
+            request, pk, 'archive', published=False, archived=True
+        )
 
 
 class AdminCourseRestoreView(APIView):
@@ -257,16 +304,7 @@ class AdminCourseRestoreView(APIView):
 
     def post(self, request, pk):
         """Restore an archived course"""
-        try:
-            course = Course.objects.get(id=pk)
-        except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        # Restore logic
-        course.published = True
-        course.save()
-
-        return Response({'success': True}, status=status.HTTP_200_OK)
+        return _update_course_state(request, pk, 'restore', published=False)
 
 
 class AdminCourseBulkActionView(APIView):
@@ -283,16 +321,14 @@ class AdminCourseBulkActionView(APIView):
         courses = Course.objects.filter(id__in=ids)
 
         if action == 'approve':
-            courses.update(published=True)
+            courses.update(published=True, archived=False)
         elif action == 'reject':
-            courses.update(published=False)
+            courses.update(published=False, archived=False)
         elif action == 'publish':
-            courses.update(published=True)
+            courses.update(published=True, archived=False)
         elif action == 'archive':
-            courses.update(published=False)
+            courses.update(published=False, archived=True)
         else:
             return Response({'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({'success': True, 'count': courses.count()}, status=status.HTTP_200_OK)
-
-

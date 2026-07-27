@@ -133,8 +133,6 @@ TU_DIEN = {
 
     # --- Thông báo, hỏi đáp, khác ---
     "notification not found": "Không tìm thấy thông báo",
-    "transaction not found": "Không tìm thấy giao dịch",
-    "subscription plan not found": "Không tìm thấy gói cước",
     "learning path not found": "Không tìm thấy lộ trình học",
     "log not found": "Không tìm thấy bản ghi",
     "file not found": "Không tìm thấy tệp",

@@ -79,12 +79,11 @@ class CourseSerializer(serializers.ModelSerializer):
     lessonsCount = serializers.SerializerMethodField()
     video_url = serializers.URLField(required=False, allow_blank=True, allow_null=True, help_text="URL video khóa học (ví dụ: YouTube hoặc link video trực tiếp)")
     video_file = serializers.FileField(required=False, allow_null=True, help_text="File video khóa học (nếu không dùng URL)")
-    price = serializers.DecimalField(max_digits=10, decimal_places=0, required=False, default=0, help_text="Giá khóa học (0 = miễn phí)")
     thumbnail = serializers.ImageField(required=False, allow_null=True, help_text="Ảnh bìa khóa học")
 
     class Meta:
         model = models.Course
-        fields = ["id", "subject", "subject_slug", "title", "description", "introduction", "grade", "owner", "slug", "published", "published_at", "created_on", "updated_on", "createdAt", "updatedAt", "status", "enrollments", "lessonsCount", "video_url", "video_file", "price", "thumbnail"]
+        fields = ["id", "subject", "subject_slug", "title", "description", "introduction", "grade", "owner", "slug", "published", "published_at", "created_on", "updated_on", "createdAt", "updatedAt", "status", "enrollments", "lessonsCount", "video_url", "video_file", "thumbnail"]
         read_only_fields = ["id", "published_at", "created_on", "updated_on", "createdAt", "updatedAt", "status", "enrollments", "lessonsCount"]
 
     def get_status(self, obj):
@@ -112,6 +111,11 @@ class CourseSerializer(serializers.ModelSerializer):
         return Lesson.objects.filter(module__course=obj, published=True).count()
 
     def validate(self, attrs):
+        if 'price' in getattr(self, 'initial_data', {}):
+            raise serializers.ValidationError({
+                'price': 'SmartKid không bán khóa học; học sinh ghi danh miễn phí.'
+            })
+
         # If subject_slug is provided, try to find Subject by slug
         subject_slug = attrs.get("subject_slug")
         if subject_slug and not attrs.get("subject"):
@@ -162,8 +166,7 @@ class CourseSerializer(serializers.ModelSerializer):
             owner_id=(owner.id if owner else None),
             slug=d.get("slug"),
             introduction=d.get("introduction"),
-            video_url=d.get("video_url"),
-            price=float(d.get("price", 0)) if d.get("price") is not None else 0
+            video_url=d.get("video_url")
         )
         course.validate()
         return course

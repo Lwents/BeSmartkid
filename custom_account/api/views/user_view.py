@@ -37,7 +37,17 @@ class CurrentUserDetailView(RoleBasedOutputMixin, APIView):
         return Response({"instance": request.user})
 
     def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        if 'role' in request.data or 'is_active' in request.data:
+            return Response(
+                {'detail': 'Không thể tự thay đổi vai trò hoặc trạng thái tài khoản.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = UserSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+            context={'request': request},
+        )
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
 
@@ -188,7 +198,8 @@ class AdminUserListView(RoleBasedOutputMixin, APIView):
                 from_date=from_date,
                 to_date=to_date,
                 sort_by=sort_by,
-                sort_dir=sort_dir
+                sort_dir=sort_dir,
+                exclude_user_id=request.user.id,
             )
             
             # Convert domain entities to dict for response
@@ -311,7 +322,7 @@ class AdminUserDetailView(RoleBasedOutputMixin, APIView):
         Handles GET requests to retrieve a single user.
         """
         instance = self.get_object(pk)
-        
+
         # The 'RoleBasedOutputMixin' will intercept raw model instance and 
         # convert it to the correct DTO (UserAdminOutput).
         return Response({"instance": instance})
@@ -322,6 +333,21 @@ class AdminUserDetailView(RoleBasedOutputMixin, APIView):
         This follows the DDD "Command" flow.
         """
         instance = self.get_object(pk)
+
+        if instance.pk == request.user.pk and (
+            'role' in request.data or 'is_active' in request.data
+        ):
+            return Response(
+                {'detail': 'Bạn không thể tự hạ quyền hoặc khóa tài khoản của mình.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if instance.is_superuser and not request.user.is_superuser and (
+            'role' in request.data or 'is_active' in request.data
+        ):
+            return Response(
+                {'detail': 'Chỉ siêu quản trị viên mới được thay đổi tài khoản này.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Validate input using the serializer
         # Provide request in context so serializer can allow is_active/role for staff
@@ -392,7 +418,7 @@ class AdminChangePasswordView(APIView):
     """
     Allows admin users to change any user's password.
     """
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
     def post(self, request, user_id):
         """
@@ -404,12 +430,27 @@ class AdminChangePasswordView(APIView):
         data = serializer.validated_data
 
         try:
+            target = UserModel.objects.get(pk=user_id)
+            if target.is_superuser and not request.user.is_superuser:
+                return Response(
+                    {'detail': 'Chỉ siêu quản trị viên mới được đặt lại mật khẩu tài khoản này.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             # Use a new service function designed for admins
-            user_service.admin_set_password(
+            revoked_tokens = user_service.admin_set_password(
                 user_id=user_id,
                 new_password=data["new_password"]
             )
+            record_admin_action(
+                request=request,
+                action='user.password.reset',
+                target_type='user',
+                target_id=user_id,
+                details={'revokedRefreshTokens': revoked_tokens},
+            )
             
+        except UserModel.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         except exceptions.UserNotFoundError as e:
             return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
@@ -420,7 +461,10 @@ class AdminChangePasswordView(APIView):
             )
 
         return Response(
-            {"detail": "Password changed successfully."}, 
+            {
+                "detail": "Password changed successfully.",
+                "revokedRefreshTokens": revoked_tokens,
+            },
             status=status.HTTP_200_OK
         )
 

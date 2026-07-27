@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 from datetime import timedelta
-from decimal import Decimal
 from dotenv import load_dotenv
 
 # -------------------------------
@@ -97,7 +96,6 @@ INSTALLED_APPS = [
     'gamification',
     'ai_personalization',
     'events',
-    'payments',
     'admin_api',
     'teacher_api',
     'student_api',
@@ -279,29 +277,6 @@ CACHES = {
 # AI / OpenAI
 # -------------------------------
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
-
-# -------------------------------
-# Payment gateways - MoMo
-# -------------------------------
-MOMO_PARTNER_CODE = os.getenv("MOMO_PARTNER_CODE", "")
-MOMO_ACCESS_KEY = os.getenv("MOMO_ACCESS_KEY", "")
-MOMO_SECRET_KEY = os.getenv("MOMO_SECRET_KEY", "")
-MOMO_CREATE_ENDPOINT = os.getenv(
-    "MOMO_CREATE_ENDPOINT",
-    "https://test-payment.momo.vn/v2/gateway/api/create",
-)
-MOMO_POS_ENDPOINT = os.getenv(
-    "MOMO_POS_ENDPOINT",
-    "https://test-payment.momo.vn/v2/gateway/api/pos",
-)
-MOMO_PARTNER_NAME = os.getenv("MOMO_PARTNER_NAME", "SmartKid")
-MOMO_STORE_ID = os.getenv("MOMO_STORE_ID", "SmartKidStore")
-MOMO_REDIRECT_URL = os.getenv("MOMO_REDIRECT_URL", "http://localhost:5173/payment/result")
-MOMO_IPN_URL = os.getenv("MOMO_IPN_URL", "")
-try:
-    MOMO_MIN_CUSTOM_AMOUNT = Decimal(os.getenv("MOMO_MIN_CUSTOM_AMOUNT", "1000"))
-except Exception:
-    MOMO_MIN_CUSTOM_AMOUNT = Decimal("1000")
 
 # -------------------------------
 # Logging

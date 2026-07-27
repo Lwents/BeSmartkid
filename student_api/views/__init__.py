@@ -16,10 +16,6 @@ from .exams_view import (
     StudentExamRankingView,
     StudentCertificatesView,
 )
-from .payments_view import (
-    StudentPaymentsHistoryView,
-    StudentPaymentsInitiateView,
-)
 from .account_view import (
     StudentProfileView,
     StudentChangePasswordView,
@@ -55,8 +51,6 @@ __all__ = [
     'StudentExamResultView',
     'StudentExamRankingView',
     'StudentCertificatesView',
-    'StudentPaymentsHistoryView',
-    'StudentPaymentsInitiateView',
     'StudentProfileView',
     'StudentChangePasswordView',
     'StudentParentViewView',

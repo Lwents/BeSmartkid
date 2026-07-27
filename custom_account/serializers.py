@@ -1,5 +1,6 @@
 import base64
 import binascii
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -145,7 +146,16 @@ class ChangePasswordSerializer(serializers.Serializer):
     
 
 class SetPasswordSerializer(serializers.Serializer):
-    new_password = serializers.CharField(write_only=True, required=True)
+    new_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        min_length=8,
+        trim_whitespace=False,
+    )
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value
 
 
 class PasswordChangeOTPVerifySerializer(serializers.Serializer):

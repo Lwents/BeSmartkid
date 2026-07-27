@@ -41,14 +41,14 @@ class StudentExamsListView(APIView):
     permission_classes = [IsAuthenticated, IsStudent]
 
     def get(self, request):
-        """Get list of exams - chỉ hiển thị cho học sinh đã mua khóa học cùng lớp"""
+        """Chỉ hiển thị bài kiểm tra thuộc khóa học học sinh đã ghi danh."""
         student = request.user
         
         # Get query parameters
         level = request.query_params.get('level', '').strip()  # 'Khối 1–2' or 'Khối 3–5'
         q = request.query_params.get('q', '').strip()
         
-        # Lấy danh sách grade của các khóa học đã mua
+        # Lấy lớp của các khóa học học sinh đang tham gia miễn phí.
         enrolled_rows = list(
             Enrollment.objects.filter(student=student, course__published=True)
             .values_list('course_id', 'course__grade')
@@ -120,7 +120,7 @@ class StudentExamsListView(APIView):
             # Normalize exercise grade để so sánh
             normalized_exercise_grade = normalize_grade(exercise_grade)
             
-            # Chỉ hiển thị exercise có grade match với grade của course đã mua
+            # Chỉ hiển thị đề có lớp phù hợp với khóa học đã ghi danh.
             if normalized_exercise_grade and normalized_exercise_grade not in enrolled_grades:
                 continue
             

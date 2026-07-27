@@ -18,6 +18,7 @@ class Subject(models.Model):
         return self.title
 
 class Course(models.Model):
+    """Published courses are enrolled free; the platform has no purchase flow."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True, blank=True, related_name='courses')
     title = models.CharField(max_length=255)
@@ -27,10 +28,10 @@ class Course(models.Model):
     created_on = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_on = models.DateTimeField(auto_now=True, null=True, blank=True)
     published = models.BooleanField(default=False)
+    archived = models.BooleanField(default=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='courses_owned')
     video_url = models.URLField(blank=True, null=True, help_text="URL video khóa học (ví dụ: YouTube link hoặc link video trực tiếp)")
     video_file = models.FileField(upload_to='course_videos/', blank=True, null=True, help_text="File video khóa học (nếu không dùng URL)")
-    price = models.DecimalField(max_digits=10, decimal_places=0, default=0, help_text="Giá khóa học (0 = miễn phí)")
     thumbnail = models.ImageField(upload_to='course_thumbnails/', blank=True, null=True, help_text="Ảnh bìa khóa học")
 
     students = models.ManyToManyField(
@@ -48,8 +49,17 @@ class Course(models.Model):
     def __str__(self):
         return self.title
 
+    def save(self, *args, **kwargs):
+        # An archived course must never remain visible through published queries.
+        if self.archived:
+            self.published = False
+            update_fields = kwargs.get('update_fields')
+            if update_fields is not None:
+                kwargs['update_fields'] = set(update_fields) | {'published'}
+        super().save(*args, **kwargs)
+
 class Enrollment(models.Model):
-    """Model to track student enrollments in courses."""
+    """Free learning access to a course, not a purchase or payment record."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='enrollments')
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='course_enrollments')

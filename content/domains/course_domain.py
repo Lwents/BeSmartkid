@@ -33,8 +33,7 @@ class CourseDomain:
                  created_on: Optional[datetime] = None,
                  updated_on: Optional[datetime] = None,
                  introduction: Optional[str] = None,
-                 video_url: Optional[str] = None,
-                 price: float = 0):
+                 video_url: Optional[str] = None):
         self.id = id or str(uuid.uuid4())
         self.title = title
         self.subject_id = subject_id
@@ -48,7 +47,6 @@ class CourseDomain:
         self.created_on = created_on
         self.updated_on = updated_on
         self.video_url = video_url
-        self.price = price
         # contained aggregates (in-memory)
         self.modules: List["ModuleDomain"] = []
         self.validate()
@@ -176,7 +174,6 @@ class CourseDomain:
             "updated_on": self.updated_on,
             "video_url": self.video_url,
             "video_file": getattr(self, 'video_file', None),
-            "price": self.price,
             "thumbnail": getattr(self, 'thumbnail', None),
             "modules": [m.to_dict() for m in self.modules]
         }
@@ -200,8 +197,7 @@ class CourseDomain:
             published_at=getattr(model,'published_at',None),
             created_on=getattr(model, 'created_on', None),
             updated_on=getattr(model, 'updated_on', None),
-            video_url=getattr(model, 'video_url', None),
-            price=float(getattr(model, 'price', 0) or 0)
+            video_url=getattr(model, 'video_url', None)
         )
         # Set thumbnail and video_file separately as they're not in __init__
         # Convert file fields to string paths, handling both file objects and string paths
@@ -230,7 +226,7 @@ class CreateCourseDomain:
     """Command object for creating a course."""
     def __init__(self, title: str, subject_id: Optional[str] = None, description: Optional[str] = None,
                  grade: Optional[str] = None, owner_id: Optional[int] = None, slug: Optional[str] = None,
-                 introduction: Optional[str] = None, video_url: Optional[str] = None, price: float = 0):
+                 introduction: Optional[str] = None, video_url: Optional[str] = None):
         self.title = title
         self.subject_id = subject_id
         self.description = description
@@ -239,7 +235,6 @@ class CreateCourseDomain:
         self.owner_id = owner_id
         self.slug = slug
         self.video_url = video_url
-        self.price = price
 
     def validate(self):
         if not self.title or not self.title.strip():
@@ -250,14 +245,13 @@ class UpdateCourseDomain:
     """Command object for updating a course."""
     def __init__(self, title: Optional[str] = None, subject_id: Optional[str] = None,
                  description: Optional[str] = None, grade: Optional[str] = None, slug: Optional[str] = None,
-                 introduction: Optional[str] = None, price: Optional[float] = None, published: Optional[bool] = None):
+                 introduction: Optional[str] = None, published: Optional[bool] = None):
         self.title = title
         self.subject_id = subject_id
         self.description = description
         self.grade = grade
         self.slug = slug
         self.introduction = introduction
-        self.price = price
         self.published = published
 
     def validate(self):

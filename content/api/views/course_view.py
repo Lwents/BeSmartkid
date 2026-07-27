@@ -131,8 +131,7 @@ class CourseListCreateView(generics.ListCreateAPIView):
                 grade=validated_data.get("grade"),
                 owner_id=request.user.id if request.user.is_authenticated else None,
                 slug=validated_data.get("slug"),
-                video_url=validated_data.get("video_url") or None,
-                price=float(validated_data.get("price", 0) or 0)
+                video_url=validated_data.get("video_url") or None
             )
             
             # Create course
@@ -289,7 +288,6 @@ class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
             slug=updates.get('slug'),
             subject_id=str(updates.get('subject').id) if updates.get('subject') else None,
             introduction=updates.get('introduction'),
-            price=float(updates.get('price')) if updates.get('price') is not None else None,
             published=published
         )
         updated_domain = course_service.update_course(course_id=instance.id, update_data=update_domain)
@@ -374,7 +372,7 @@ class CoursePublishView(APIView):
 # Extra: enroll / progress endpoints (basic)
 class CourseEnrollView(APIView):
     """
-    POST /api/courses/{id}/enroll/ -> enroll current user
+    POST /api/courses/{id}/enroll/ -> enroll current user for free
     DELETE /api/courses/{id}/enroll/ -> unenroll
     """
     permission_classes = [permissions.IsAuthenticated]

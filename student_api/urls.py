@@ -14,8 +14,6 @@ from student_api.views import (
     StudentExamResultView,
     StudentExamRankingView,
     StudentCertificatesView,
-    StudentPaymentsHistoryView,
-    StudentPaymentsInitiateView,
     StudentProfileView,
     StudentChangePasswordView,
     StudentParentViewView,
@@ -91,10 +89,6 @@ urlpatterns = [
     path('exams/<uuid:pk>/result/<uuid:attempt_id>/', StudentExamResultView.as_view(), name='exam-result'),
     path('exams/<uuid:pk>/ranking/', StudentExamRankingView.as_view(), name='exam-ranking'),
     path('exams/certificates/', StudentCertificatesView.as_view(), name='certificates'),
-    
-    # Payments
-    path('payments/history/', StudentPaymentsHistoryView.as_view(), name='payments-history'),
-    path('payments/initiate/', StudentPaymentsInitiateView.as_view(), name='payments-initiate'),
     
     # Account
     path('account/profile/', StudentProfileView.as_view(), name='profile'),

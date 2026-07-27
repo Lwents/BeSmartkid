@@ -37,8 +37,7 @@ class CourseService:
             grade=input_data.grade,
             owner=owner,
             published=False,
-            video_url=input_data.video_url,
-            price=input_data.price
+            video_url=input_data.video_url
         )
         return CourseDomain.from_model(course)
 
@@ -73,7 +72,6 @@ class CourseService:
         if update_data.description is not None: course.description = update_data.description
         if update_data.grade is not None: course.grade = update_data.grade
         if update_data.introduction is not None: course.introduction = update_data.introduction
-        if update_data.price is not None: course.price = update_data.price
         # Handle published: if set to False, just update. If set to True, we should use publish_course instead
         # But for simplicity, allow direct update here. The publish endpoint will do validation.
         if update_data.published is not None:

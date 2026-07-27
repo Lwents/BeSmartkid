@@ -75,6 +75,7 @@ class UpdateUserInput(BaseModel):
     email: str | None = None
     phone: str | None = None
     is_active: bool | None = None
+    role: str | None = None
 
     def to_dict(self, exclude_none: bool = True) -> dict:
         """
