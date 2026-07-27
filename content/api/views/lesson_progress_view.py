@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from content import models
 from activities.models import ExerciseAttempt
+from content.services.lesson_access_service import get_lesson_unlock_status
 
 
 class LessonProgressView(APIView):
@@ -36,6 +37,13 @@ class LessonProgressView(APIView):
     def post(self, request, lesson_id):
         """Update progress"""
         lesson = get_object_or_404(models.Lesson, id=lesson_id)
+        unlock_status = get_lesson_unlock_status(lesson, request.user)
+        if not unlock_status.can_unlock:
+            return Response({
+                'detail': unlock_status.reason,
+                'can_unlock': False,
+            }, status=status.HTTP_403_FORBIDDEN)
+
         progress, created = models.LessonProgress.objects.get_or_create(
             lesson=lesson,
             student=request.user,
@@ -79,73 +87,25 @@ class LessonProgressView(APIView):
 
 class LessonUnlockCheckView(APIView):
     """
-    GET /api/lessons/{lesson_id}/unlock-check/ - Check if lesson can be unlocked
-    Logic: 
-    1. Tất cả bài học trong module trước phải hoàn thành
-    2. Bài học trước trong cùng module phải hoàn thành
+    GET /api/content/lessons/{lesson_id}/unlock-check/
+    Mọi bài đã xuất bản đứng trước bài hiện tại đều phải hoàn thành.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, lesson_id):
         """Check if lesson can be unlocked"""
-        lesson = get_object_or_404(models.Lesson, id=lesson_id)
-        student = request.user
-        
-        can_unlock = True
-        reason = None
-        
-        # 1. Check module trước (chương trước) - phải hoàn thành HẾT
-        current_module = lesson.module
-        previous_module = models.Module.objects.filter(
-            course=current_module.course,
-            position__lt=current_module.position
-        ).order_by('-position').first()
-        
-        if previous_module:
-            # Đếm số bài học đã hoàn thành trong module trước
-            total_lessons_in_prev = models.Lesson.objects.filter(
-                module=previous_module,
-                published=True
-            ).count()
-            
-            completed_lessons_in_prev = models.LessonProgress.objects.filter(
-                lesson__module=previous_module,
-                student=student,
-                completed=True
-            ).count()
-            
-            if total_lessons_in_prev > 0 and completed_lessons_in_prev < total_lessons_in_prev:
-                can_unlock = False
-                reason = f"Bạn cần hoàn thành tất cả bài học trong {previous_module.title} trước khi xem {current_module.title}"
-        
-        # 2. Check bài học trước trong cùng module
-        if can_unlock:
-            previous_lesson = models.Lesson.objects.filter(
-                module=lesson.module,
-                position__lt=lesson.position,
-                published=True
-            ).order_by('-position').first()
-        
-        if previous_lesson:
-            prev_progress = models.LessonProgress.objects.filter(
-                lesson=previous_lesson,
-                    student=student
-            ).first()
-            
-            if not prev_progress or not prev_progress.completed:
-                can_unlock = False
-                reason = f"Bạn cần hoàn thành bài học trước: {previous_lesson.title}"
+        lesson = get_object_or_404(
+            models.Lesson.objects.select_related('module', 'module__course'),
+            id=lesson_id,
+            published=True,
+        )
+        unlock_status = get_lesson_unlock_status(lesson, request.user)
         
         return Response({
-            'can_unlock': can_unlock,
-            'reason': reason,
-            'previous_lesson_id': str(previous_lesson.id) if 'previous_lesson' in locals() and previous_lesson else None
+            'can_unlock': unlock_status.can_unlock,
+            'reason': unlock_status.reason,
+            'previous_lesson_id': (
+                str(unlock_status.blocking_lesson.id)
+                if unlock_status.blocking_lesson else None
+            ),
         })
-
-
-
-
-
-
-
-

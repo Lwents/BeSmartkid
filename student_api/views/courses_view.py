@@ -9,6 +9,7 @@ import json
 
 from student_api.permissions import IsStudent
 from content.models import Course, Enrollment, Lesson, LessonProgress, Module
+from content.services.lesson_access_service import get_lesson_unlock_status
 from ai_personalization.models import LearningPath
 
 
@@ -430,11 +431,13 @@ class StudentCourseDetailView(APIView):
             if not kind:
                 kind = 'text'
             return kind
+        previous_lessons_completed = True
         for module in modules:
             lessons = []
             for lesson in module.lessons.all():
                 # Get progress for this lesson
                 progress = progress_map.get(lesson.id)
+                completed = progress.completed if progress else False
                 
                 lessons.append({
                     'id': str(lesson.id),
@@ -443,11 +446,13 @@ class StudentCourseDetailView(APIView):
                     'content_type': lesson.content_type,
                     'durationMinutes': None,  # Could calculate from video if available
                     'isPreview': False,  # First lesson could be preview
-                    'completed': progress.completed if progress else False,
+                    'completed': completed,
+                    'unlocked': previous_lessons_completed,
                     'videoWatched': progress.video_watched if progress else False,
                     'exerciseCompleted': progress.exercise_completed if progress else False,
                     'introduction': lesson.introduction or '',
                 })
+                previous_lessons_completed = previous_lessons_completed and completed
             
             sections.append({
                 'id': str(module.id),
@@ -584,25 +589,30 @@ class StudentCoursePlayerView(APIView):
         
         # Get lesson if specified
         if lesson_id:
-            lesson = get_object_or_404(Lesson, pk=lesson_id, module__course=course)
+            lesson = get_object_or_404(
+                Lesson.objects.select_related('module', 'module__course'),
+                pk=lesson_id,
+                module__course=course,
+                published=True,
+            )
         else:
-            # Get first lesson
-            first_module = Module.objects.filter(course=course).order_by('position').first()
-            if not first_module:
-                return Response(
-                    {'detail': 'No lessons in this course'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-            lesson = Lesson.objects.filter(
-                module=first_module,
+            lesson = Lesson.objects.select_related('module', 'module__course').filter(
+                module__course=course,
                 published=True
-            ).order_by('position').first()
+            ).order_by('module__position', 'position', 'id').first()
             
             if not lesson:
                 return Response(
                     {'detail': 'No published lessons in this course'},
                     status=status.HTTP_404_NOT_FOUND
                 )
+
+        unlock_status = get_lesson_unlock_status(lesson, student)
+        if not unlock_status.can_unlock:
+            return Response({
+                'detail': unlock_status.reason,
+                'can_unlock': False,
+            }, status=status.HTTP_403_FORBIDDEN)
         
         # Get or create progress
         progress, created = LessonProgress.objects.get_or_create(
