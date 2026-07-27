@@ -42,6 +42,16 @@ from activities.services.ai_question_generator import (
     parse_ai_questions,
 )
 from activities.api.permissions import IsAdminOrReadOnly
+from activities.services.exercise_access_service import (
+    can_manage_course,
+    can_manage_exercise,
+    can_view_exercise,
+    course_from_exercise_payload,
+    is_admin,
+    is_student,
+    is_teacher,
+    student_can_access_exercise,
+)
 import os
 import time
 import requests
@@ -51,7 +61,6 @@ from django.apps import apps
 ExerciseModel = apps.get_model("activities", "Exercise")
 ExerciseAttemptModel = apps.get_model("activities", "ExerciseAttempt")
 ExerciseAnswerModel = apps.get_model("activities", "ExerciseAnswer")
-EnrollmentModel = apps.get_model("content", "Enrollment")
 
 
 class ExerciseListCreateView(APIView):
@@ -73,6 +82,30 @@ class ExerciseListCreateView(APIView):
             filters["lesson_id"] = lesson_id
         domains = list_exercises(filters=filters)
         data = [ExerciseModelSerializer.from_domain(d) for d in domains]
+
+        exercise_models = {
+            str(exercise.id): exercise
+            for exercise in ExerciseModel.objects.filter(
+                id__in=[item["id"] for item in data]
+            ).select_related("settings", "lesson__module__course")
+        }
+        if is_admin(request.user):
+            pass
+        elif is_teacher(request.user):
+            data = [
+                item for item in data
+                if can_manage_exercise(request.user, exercise_models.get(str(item["id"])))
+            ]
+        elif is_student(request.user):
+            data = [
+                item for item in data
+                if student_can_access_exercise(
+                    request.user,
+                    exercise_models.get(str(item["id"])),
+                )
+            ]
+        else:
+            data = []
         
         # Filter by search query (title)
         if q:
@@ -98,22 +131,6 @@ class ExerciseListCreateView(APIView):
             (item.get("metadata") or {}).get("type") == "ai_practice"
         )]
 
-        student_view = request.query_params.get("student_view", "").lower() == "true"
-        # Học sinh (hoặc caller yêu cầu student_view) chỉ thấy đề thi thuộc khóa đã tham gia
-        if student_view or (request.user and getattr(request.user, "role", "").lower() == "student"):
-            if not request.user or not request.user.is_authenticated:
-                return Response([])  # không đăng nhập thì không trả gì cho student view
-            enrolled_ids = {
-                str(cid) for cid in EnrollmentModel.objects.filter(student=request.user).values_list("course_id", flat=True)
-            }
-            filtered = []
-            for item in data:
-                settings = (item.get("settings") or {}) if isinstance(item, dict) else {}
-                course_id = settings.get("course_id") or item.get("course_id")
-                if course_id and str(course_id) in enrolled_ids:
-                    filtered.append(item)
-            data = filtered
-        
         # Add stats if requested
         if include_stats:
             from activities.services.analytic_service import exercise_stats
@@ -163,6 +180,18 @@ class ExerciseListCreateView(APIView):
     def post(self, request: Request):
         serializer = ExerciseModelSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        course = course_from_exercise_payload(request.data)
+        if not is_admin(request.user):
+            if course is None:
+                return Response(
+                    {"detail": "Bài kiểm tra phải thuộc một khóa học hợp lệ."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not can_manage_course(request.user, course):
+                return Response(
+                    {"detail": "Bạn không có quyền tạo bài kiểm tra cho khóa học này."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         # map to domain
         domain = serializer.to_domain()
         try:
@@ -182,17 +211,43 @@ class ExerciseDetailView(APIView):
 
     def get(self, request: Request, exercise_id: str):
         try:
-            domain = get_exercise(exercise_id)
-        except NotFoundError:
+            model = ExerciseModel.objects.select_related(
+                "settings", "lesson__module__course"
+            ).get(id=exercise_id)
+        except ExerciseModel.DoesNotExist:
             return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_view_exercise(request.user, model):
+            return Response({"detail": "Không được phép truy cập"}, status=status.HTTP_403_FORBIDDEN)
+        domain = get_exercise(exercise_id)
         return Response(ExerciseModelSerializer.from_domain(domain))
 
     def patch(self, request: Request, exercise_id: str):
         # partial update; load model, then merge changes using serializer
         try:
-            model = ExerciseModel.objects.prefetch_related("questions__choices").get(id=exercise_id)
+            model = ExerciseModel.objects.select_related(
+                "settings", "lesson__module__course"
+            ).prefetch_related("questions__choices").get(id=exercise_id)
         except ExerciseModel.DoesNotExist:
             return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, model):
+            return Response({"detail": "Không được phép chỉnh sửa"}, status=status.HTTP_403_FORBIDDEN)
+
+        incoming_settings = request.data.get("settings") or {}
+        changes_course = "lesson" in request.data or (
+            hasattr(incoming_settings, "__contains__") and "course_id" in incoming_settings
+        )
+        if changes_course:
+            target_course = course_from_exercise_payload(request.data)
+            if target_course is None:
+                return Response(
+                    {"detail": "Khóa học hoặc bài học được chọn không hợp lệ."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not can_manage_course(request.user, target_course):
+                return Response(
+                    {"detail": "Bạn không có quyền chuyển bài kiểm tra sang khóa học này."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         serializer = ExerciseModelSerializer(instance=model, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -204,6 +259,14 @@ class ExerciseDetailView(APIView):
         return Response(ExerciseModelSerializer.from_domain(updated))
 
     def delete(self, request: Request, exercise_id: str):
+        try:
+            model = ExerciseModel.objects.select_related(
+                "settings", "lesson__module__course"
+            ).get(id=exercise_id)
+        except ExerciseModel.DoesNotExist:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, model):
+            return Response({"detail": "Không được phép xóa"}, status=status.HTTP_403_FORBIDDEN)
         try:
             delete_exercise(exercise_id)
         except NotFoundError:

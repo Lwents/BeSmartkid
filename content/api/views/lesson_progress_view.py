@@ -10,6 +10,18 @@ from activities.models import ExerciseAttempt
 from content.services.lesson_access_service import get_lesson_unlock_status
 
 
+def _is_enrolled_student(user, lesson):
+    return bool(
+        getattr(user, "role", "") == "student"
+        and lesson.published
+        and lesson.module.course.published
+        and models.Enrollment.objects.filter(
+            course=lesson.module.course,
+            student=user,
+        ).exists()
+    )
+
+
 class LessonProgressView(APIView):
     """
     GET /api/lessons/{lesson_id}/progress/ - Get progress for current user
@@ -19,7 +31,14 @@ class LessonProgressView(APIView):
 
     def get(self, request, lesson_id):
         """Get progress for current user"""
-        lesson = get_object_or_404(models.Lesson, id=lesson_id)
+        lesson = get_object_or_404(
+            models.Lesson.objects.select_related("module__course"), id=lesson_id
+        )
+        if not _is_enrolled_student(request.user, lesson):
+            return Response(
+                {"detail": "Bạn chưa tham gia khóa học này."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         progress, created = models.LessonProgress.objects.get_or_create(
             lesson=lesson,
             student=request.user,
@@ -36,7 +55,14 @@ class LessonProgressView(APIView):
 
     def post(self, request, lesson_id):
         """Update progress"""
-        lesson = get_object_or_404(models.Lesson, id=lesson_id)
+        lesson = get_object_or_404(
+            models.Lesson.objects.select_related("module__course"), id=lesson_id
+        )
+        if not _is_enrolled_student(request.user, lesson):
+            return Response(
+                {"detail": "Bạn chưa tham gia khóa học này."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         unlock_status = get_lesson_unlock_status(lesson, request.user)
         if not unlock_status.can_unlock:
             return Response({
@@ -99,6 +125,11 @@ class LessonUnlockCheckView(APIView):
             id=lesson_id,
             published=True,
         )
+        if not _is_enrolled_student(request.user, lesson):
+            return Response(
+                {"detail": "Bạn chưa tham gia khóa học này.", "can_unlock": False},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         unlock_status = get_lesson_unlock_status(lesson, request.user)
         
         return Response({

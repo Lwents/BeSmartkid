@@ -16,6 +16,10 @@ from activities.domains.exercise_domain import ExerciseDomain
 from activities.domains.question_domain import QuestionDomain
 from activities.services.exceptions import NotFoundError, ValidationError, PermissionDenied
 from activities.services.exercise_service import get_exercise
+from activities.services.exercise_access_service import (
+    can_manage_exercise,
+    student_can_access_exercise,
+)
 
 
 
@@ -57,6 +61,17 @@ def start_attempt(exercise_id: str, student_user) -> ExerciseAttemptDomain:
     student_id = getattr(student_user, "id", None)
     if not student_id:
         raise ValidationError("Không xác định được người dùng để bắt đầu bài kiểm tra.")
+
+    try:
+        exercise_model = ExerciseModel.objects.select_related(
+            "settings", "lesson__module__course"
+        ).get(id=exercise_id)
+    except ExerciseModel.DoesNotExist:
+        raise NotFoundError("Exercise not found")
+    if not student_can_access_exercise(student_user, exercise_model):
+        raise PermissionDenied(
+            "Bạn cần tham gia khóa học và mở khóa nội dung trước khi làm bài kiểm tra."
+        )
     
     # Check if exercise is published
     if not exercise.published:
@@ -148,6 +163,11 @@ def finalize_attempt(attempt_id: str, actor_user=None, force=False) -> Dict[str,
         att = ExerciseAttemptModel.objects.get(id=attempt_id)
     except ExerciseAttemptModel.DoesNotExist:
         raise NotFoundError("Attempt not found")
+
+    if not actor_user:
+        raise PermissionDenied("Không xác định được người dùng nộp bài.")
+    if not force and actor_user.id != att.student_id:
+        raise PermissionDenied("Không được phép nộp bài của học sinh khác.")
 
     # Chặn nộp lại lượt đã kết thúc (trừ khi staff dùng force) để điểm không bị ghi đè.
     if att.finished_at is not None and not force:
@@ -276,7 +296,7 @@ def manual_grade_answer(
     Manual grading for a given answer.
 
     Behaviour:
-    - Only staff can manual-grade (PermissionDenied otherwise).
+    - Only the course owner or an admin can manual-grade.
     - Finds the ExerciseAnswerModel for (attempt, question).
     - Writes `manual_score` and optionally `grader_comment` into answer JSON,
       also sets answer['score'] = manual_score to override automated score.
@@ -287,15 +307,16 @@ def manual_grade_answer(
     - Persists updated answer(s) and attempt.score.
     - Returns ExerciseAnswerDomain for the answer that was manually graded.
     """
-    # Permission
-    if not getattr(grader_user, "is_staff", False):
-        raise PermissionDenied("Only staff can manually grade answers.")
-
     # Load attempt + answer
     try:
-        att_model = ExerciseAttemptModel.objects.select_related("exercise").prefetch_related("answers__question").get(id=attempt_id)
+        att_model = ExerciseAttemptModel.objects.select_related(
+            "exercise__settings", "exercise__lesson__module__course"
+        ).prefetch_related("answers__question").get(id=attempt_id)
     except ExerciseAttemptModel.DoesNotExist:
         raise NotFoundError("Attempt not found")
+
+    if not can_manage_exercise(grader_user, att_model.exercise):
+        raise PermissionDenied("Không được phép chấm bài kiểm tra này.")
 
     try:
         answer_model = ExerciseAnswerModel.objects.get(attempt=att_model, question_id=question_id)

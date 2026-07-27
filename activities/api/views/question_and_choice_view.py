@@ -38,6 +38,8 @@ from activities.services import (
 )
 from activities.services import ServiceError, NotFoundError, ValidationError, PermissionDenied
 from activities.api.permissions import IsAdminOrReadOnly
+from activities.models import Choice, Exercise, Question
+from activities.services.exercise_access_service import can_manage_exercise
 
 class IsTeacherOrAdmin(permissions.BasePermission):
     """Allow teachers and admins."""
@@ -63,6 +65,14 @@ class ExerciseQuestionCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTeacherOrAdmin]
 
     def post(self, request: Request, exercise_id: str):
+        try:
+            exercise = Exercise.objects.select_related(
+                "settings", "lesson__module__course"
+            ).get(id=exercise_id)
+        except Exercise.DoesNotExist:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, exercise):
+            return Response({"detail": "Không được phép chỉnh sửa"}, status=status.HTTP_403_FORBIDDEN)
         # Merge exercise_id from URL into data if not provided
         data = request.data.copy()
         if exercise_id and 'exercise' not in data:
@@ -85,6 +95,14 @@ class QuestionDeleteView(APIView):
 
     def delete(self, request: Request, question_id: str):
         try:
+            question = Question.objects.select_related(
+                "exercise__settings", "exercise__lesson__module__course"
+            ).get(id=question_id)
+        except Question.DoesNotExist:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, question.exercise):
+            return Response({"detail": "Không được phép chỉnh sửa"}, status=status.HTTP_403_FORBIDDEN)
+        try:
             delete_question(question_id)
         except NotFoundError:
             return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -98,6 +116,14 @@ class QuestionChoiceCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTeacherOrAdmin]
 
     def post(self, request: Request, question_id: str):
+        try:
+            question = Question.objects.select_related(
+                "exercise__settings", "exercise__lesson__module__course"
+            ).get(id=question_id)
+        except Question.DoesNotExist:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, question.exercise):
+            return Response({"detail": "Không được phép chỉnh sửa"}, status=status.HTTP_403_FORBIDDEN)
         serializer = ChoiceModelSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         c_domain = serializer.to_domain()
@@ -115,6 +141,15 @@ class ChoiceDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTeacherOrAdmin]
 
     def delete(self, request: Request, choice_id: str):
+        try:
+            choice = Choice.objects.select_related(
+                "question__exercise__settings",
+                "question__exercise__lesson__module__course",
+            ).get(id=choice_id)
+        except Choice.DoesNotExist:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, choice.question.exercise):
+            return Response({"detail": "Không được phép chỉnh sửa"}, status=status.HTTP_403_FORBIDDEN)
         try:
             delete_choice(choice_id)
         except NotFoundError:

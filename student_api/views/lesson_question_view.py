@@ -10,7 +10,8 @@ from django.shortcuts import get_object_or_404
 
 from student_api.permissions import IsStudent
 from django.conf import settings
-from content.models import Lesson
+from content.models import Enrollment, Lesson
+from content.services.lesson_access_service import get_lesson_unlock_status
 from activities.models import Notification, LessonQuestion, LessonQuestionReply, LessonQuestionReport
 from django.contrib.auth import get_user_model
 from django.http import StreamingHttpResponse
@@ -29,6 +30,16 @@ def assigned_teacher_for(lesson):
     ):
         return course, owner
     return course, None
+
+
+def student_can_access_lesson(student, lesson):
+    course = lesson.module.course
+    return bool(
+        lesson.published
+        and course.published
+        and Enrollment.objects.filter(course=course, student=student).exists()
+        and get_lesson_unlock_status(lesson, student).can_unlock
+    )
 
 
 def avatar_for(user, request):
@@ -178,6 +189,15 @@ class StudentLessonQuestionView(APIView):
         if not lesson_id:
             return Response({"detail": "lesson_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        lesson = get_object_or_404(
+            Lesson.objects.select_related("module__course"), id=lesson_id
+        )
+        if not student_can_access_lesson(request.user, lesson):
+            return Response(
+                {"detail": "Bạn chưa được phép mở phần hỏi đáp của bài học này."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         qs = LessonQuestion.objects.filter(lesson_id=lesson_id).select_related(
             "student", 
             "student__profile"
@@ -201,7 +221,14 @@ class StudentLessonQuestionView(APIView):
         if not content:
             return Response({"detail": "Nội dung không được để trống"}, status=status.HTTP_400_BAD_REQUEST)
 
-        lesson = get_object_or_404(Lesson, id=lesson_id)
+        lesson = get_object_or_404(
+            Lesson.objects.select_related("module__course"), id=lesson_id
+        )
+        if not student_can_access_lesson(request.user, lesson):
+            return Response(
+                {"detail": "Bạn chưa được phép đặt câu hỏi cho bài học này."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         course, teacher = assigned_teacher_for(lesson)
         if teacher is None:
             return Response(

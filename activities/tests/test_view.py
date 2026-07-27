@@ -22,6 +22,7 @@ ExerciseAnswer = apps.get_model("activities", "ExerciseAnswer")
 ExerciseSettings = apps.get_model("activities", "ExerciseSettings")
 # content.Lesson expected in your project
 Lesson = apps.get_model("content", "Lesson")
+Enrollment = apps.get_model("content", "Enrollment")
 
 User = get_user_model()
 
@@ -50,6 +51,7 @@ def build_exercise_payload(lesson_id, title="Math Quiz", time_limit=None, max_at
         "lesson": str(lesson_id),
         "title": title,
         "type": "mcq",
+        "published": True,
         "settings": settings,
         "questions": [q_conf],
     }
@@ -109,6 +111,7 @@ def test_start_submit_finalize_flow(auth_client, admin_auth_client):
 
     # admin create exercise
     lesson = LessonFactory()
+    Enrollment.objects.create(course=lesson.module.course, student=student)
     payload = build_exercise_payload(lesson.id)
     r = admin_client.post(f"{BASE}exercises/", payload, format="json")
     assert r.status_code == 201
@@ -175,6 +178,7 @@ def test_max_attempts_enforced(admin_auth_client, auth_client):
     student_client, student, _ = auth_client
 
     lesson = LessonFactory()
+    Enrollment.objects.create(course=lesson.module.course, student=student)
     payload = build_exercise_payload(lesson.id, max_attempts=1)
     r = admin_client.post(f"{BASE}exercises/", payload, format="json")
     assert r.status_code == 201
@@ -183,8 +187,12 @@ def test_max_attempts_enforced(admin_auth_client, auth_client):
     # start first attempt - ok
     r1 = student_client.post(f"{BASE}exercises/{exercise_id}/start/")
     assert r1.status_code == 201
+    attempt_id = r1.data.get("id") or r1.data.get("attempt_id")
+    assert student_client.post(
+        f"{BASE}attempts/{attempt_id}/finalize/", {}, format="json"
+    ).status_code == 200
 
-    # start second attempt - should fail due to max_attempts=1
+    # A finished first attempt consumes the student's only allowed attempt.
     r2 = student_client.post(f"{BASE}exercises/{exercise_id}/start/")
     assert r2.status_code == 400 or r2.status_code == 403
 
@@ -197,10 +205,11 @@ def test_max_attempts_is_per_student_not_global(admin_auth_client, auth_client, 
     # create second student + client
     student2 = user_factory(username="student_two")
     student2_client = APIClient()
-    token2, _ = Token.objects.get_or_create(user=student2)
-    student2_client.credentials(HTTP_AUTHORIZATION=f"Token {token2.key}")
+    student2_client.force_authenticate(student2)
 
     lesson = LessonFactory()
+    Enrollment.objects.create(course=lesson.module.course, student=student1)
+    Enrollment.objects.create(course=lesson.module.course, student=student2)
     payload = build_exercise_payload(lesson.id, max_attempts=1)
     r = admin_client.post(f"{BASE}exercises/", payload, format="json")
     assert r.status_code == 201
@@ -221,6 +230,7 @@ def test_short_answer_fuzzy_matching(admin_auth_client, auth_client):
     student_client, student, _ = auth_client
 
     lesson = LessonFactory()
+    Enrollment.objects.create(course=lesson.module.course, student=student)
     # prepare short answer question with accepted answers and fuzzy threshold low to allow near match
     q_conf = {
         "prompt": "Write number twenty-one",
@@ -260,6 +270,7 @@ def test_regrade_and_manual_grade(admin_auth_client, auth_client):
     student_client, student, _ = auth_client
 
     lesson = LessonFactory()
+    Enrollment.objects.create(course=lesson.module.course, student=student)
     payload = build_exercise_payload(lesson.id)
     r = admin_client.post(f"{BASE}exercises/", payload, format="json")
     assert r.status_code == 201

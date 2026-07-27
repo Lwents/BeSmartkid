@@ -38,6 +38,8 @@ from activities.services import (
 )
 from activities.services import ServiceError, NotFoundError, ValidationError, PermissionDenied
 from activities.api.permissions import IsAdminOrReadOnly
+from activities.models import ExerciseAttempt
+from activities.services.exercise_access_service import can_manage_exercise
 
 
 # -----------------------
@@ -195,6 +197,15 @@ class AttemptSummaryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request: Request, attempt_id: str):
+        try:
+            attempt = ExerciseAttempt.objects.select_related(
+                "exercise__settings", "exercise__lesson__module__course"
+            ).get(id=attempt_id)
+        except ExerciseAttempt.DoesNotExist:
+            return Response({"detail": "Attempt not found"}, status=status.HTTP_404_NOT_FOUND)
+        owns_attempt = attempt.student_id == request.user.id
+        if not owns_attempt and not can_manage_exercise(request.user, attempt.exercise):
+            return Response({"detail": "Không được phép truy cập"}, status=status.HTTP_403_FORBIDDEN)
         try:
             summary = get_attempt_summary(attempt_id)
         except NotFoundError:

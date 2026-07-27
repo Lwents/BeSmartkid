@@ -25,6 +25,11 @@ from custom_account.models import Profile
 from activities.services.attempt_service import manual_grade_answer
 from activities.services import ServiceError, NotFoundError, ValidationError, PermissionDenied
 from activities.api.permissions import IsAdminOrReadOnly
+from activities.models import Exercise
+from activities.services.exercise_access_service import (
+    can_manage_exercise,
+    student_can_access_exercise,
+)
 
 class IsTeacherOrAdmin(permissions.BasePermission):
     """Allow teachers/instructors and admins."""
@@ -46,6 +51,14 @@ class RegradeAttemptView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTeacherOrAdmin]
 
     def post(self, request: Request, attempt_id: str):
+        try:
+            attempt = ExerciseAttempt.objects.select_related(
+                "exercise__settings", "exercise__lesson__module__course"
+            ).get(id=attempt_id)
+        except ExerciseAttempt.DoesNotExist:
+            return Response({"detail": "Attempt not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, attempt.exercise):
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         try:
             result = attempt_service.regrade_attempt(attempt_id)
         except NotFoundError:
@@ -92,6 +105,17 @@ class ExerciseStatsView(APIView):
 
     def get(self, request: Request, exercise_id: str):
         try:
+            exercise = Exercise.objects.select_related(
+                "settings", "lesson__module__course"
+            ).get(id=exercise_id)
+        except Exercise.DoesNotExist:
+            return Response({"detail": "Exercise not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not (
+            can_manage_exercise(request.user, exercise)
+            or student_can_access_exercise(request.user, exercise)
+        ):
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+        try:
             from activities.services.analytic_service import exercise_stats, exercise_ranking
             
             # Get basic stats
@@ -115,14 +139,15 @@ class ExerciseAttemptsListView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTeacherOrAdmin]
 
     def get(self, request: Request, exercise_id: str):
-        from activities.models import ExerciseAttempt, Exercise
-        from django.db.models import Q
-        
         try:
             # Verify exercise exists
-            exercise = Exercise.objects.get(id=exercise_id)
+            exercise = Exercise.objects.select_related(
+                "settings", "lesson__module__course"
+            ).get(id=exercise_id)
         except Exercise.DoesNotExist:
             return Response({"detail": "Exercise not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, exercise):
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         
         # Get all attempts for this exercise
         attempts = ExerciseAttempt.objects.filter(exercise_id=exercise_id).select_related('student', 'student__profile').order_by('-finished_at', '-started_at')
@@ -168,6 +193,14 @@ class ExportResultsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsTeacherOrAdmin]
 
     def get(self, request: Request, exercise_id: str):
+        try:
+            exercise = Exercise.objects.select_related(
+                "settings", "lesson__module__course"
+            ).get(id=exercise_id)
+        except Exercise.DoesNotExist:
+            return Response({"detail": "Exercise not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not can_manage_exercise(request.user, exercise):
+            return Response({"detail": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         try:
             filename, content = analytic_service.export_results_csv(exercise_id)
         except NotFoundError:

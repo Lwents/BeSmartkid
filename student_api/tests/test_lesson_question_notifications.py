@@ -2,7 +2,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from activities.models import LessonQuestion, Notification
-from content.models import Course, Lesson, Module, Subject
+from content.models import Course, Enrollment, Lesson, Module, Subject
 from custom_account.models import UserModel
 
 
@@ -39,6 +39,7 @@ def test_student_question_notifies_only_course_teacher():
     admin = create_user("qa-admin", "admin", is_staff=True)
     student = create_user("qa-student", "student")
     lesson = create_lesson(teacher, "qa-teacher-course")
+    Enrollment.objects.create(course=lesson.module.course, student=student)
     client = APIClient()
     client.force_authenticate(student)
 
@@ -65,6 +66,7 @@ def test_admin_course_owner_is_not_treated_as_teacher():
     admin = create_user("owner-admin", "admin", is_staff=True)
     student = create_user("owner-student", "student")
     lesson = create_lesson(admin, "admin-owned-course")
+    Enrollment.objects.create(course=lesson.module.course, student=student)
     client = APIClient()
     client.force_authenticate(student)
 

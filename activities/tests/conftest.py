@@ -43,19 +43,24 @@ def user_factory(db):
 
 
 @pytest.fixture
-def auth_client(db, api_client, user_factory):
-    user = user_factory()
-    token, _ = Token.objects.get_or_create(user=user)
-    api_client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
-    return api_client, user, token
+def auth_client(db, user_factory):
+    user = user_factory(role="student")
+    client = APIClient()
+    client.force_authenticate(user)
+    return client, user, None
 
 
 @pytest.fixture
-def admin_auth_client(db, api_client, user_factory):
-    admin = user_factory(is_staff=True, username="admin1", email="admin1@example.com")
+def admin_auth_client(db, user_factory):
+    admin = user_factory(
+        role="admin",
+        is_staff=True,
+        username="admin1",
+        email="admin1@example.com",
+    )
     admin.is_staff = True
     admin.is_superuser = getattr(admin, "is_superuser", False) or True
     admin.save()
-    token, _ = Token.objects.get_or_create(user=admin)
-    api_client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
-    return api_client, admin, token
+    client = APIClient()
+    client.force_authenticate(admin)
+    return client, admin, None

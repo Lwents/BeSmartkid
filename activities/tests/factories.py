@@ -16,6 +16,7 @@ Question = apps.get_model("activities", "Question")
 Choice = apps.get_model("activities", "Choice")
 ExerciseAttempt = apps.get_model("activities", "ExerciseAttempt")
 ExerciseAnswer = apps.get_model("activities", "ExerciseAnswer")
+ExerciseSettings = apps.get_model("activities", "ExerciseSettings")
 # content.Lesson expected in your project
 Lesson = apps.get_model("content", "Lesson")
 Module = apps.get_model("content", "Module")
@@ -35,6 +36,7 @@ class UserFactory(factory.django.DjangoModelFactory):
     email = factory.LazyAttribute(lambda o: f"{o.username}@example.com")
     is_active = True
     is_staff = False
+    role = "student"
     # default password
     @factory.post_generation
     def set_password(obj, create, extracted, **kwargs):
@@ -88,9 +90,15 @@ class ExerciseFactory(factory.django.DjangoModelFactory):
     title = factory.LazyAttribute(lambda o: f"Exercise {uuid.uuid4().hex[:6]}")
     # Use one of allowed type values in your model; many examples used 'mcq'
     type = "mcq"
-    metadata = {}
-    # settings might be stored on model.settings (JSONField) or related model
-    settings = factory.LazyFunction(lambda: {})
+    published = True
+
+    @factory.post_generation
+    def settings(obj, create, extracted, **kwargs):
+        if create:
+            ExerciseSettings.objects.get_or_create(
+                exercise=obj,
+                defaults=extracted if isinstance(extracted, dict) else {},
+            )
 
 
 class QuestionFactory(factory.django.DjangoModelFactory):
@@ -122,7 +130,6 @@ class AttemptFactory(factory.django.DjangoModelFactory):
     exercise = factory.SubFactory(ExerciseFactory)
     student = factory.SubFactory(UserFactory)
     started_at = factory.LazyFunction(timezone.now)
-    status = "in_progress"
     metadata = factory.LazyFunction(lambda: {})
 
 

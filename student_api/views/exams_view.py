@@ -18,6 +18,19 @@ from activities.services import (
 )
 from activities.services import NotFoundError, ValidationError, PermissionDenied
 from content.models import Enrollment, Course
+from activities.services.exercise_access_service import student_can_access_exercise
+
+
+def _get_available_exam(student, exam_id):
+    try:
+        exercise = Exercise.objects.select_related(
+            'settings', 'lesson__module__course'
+        ).prefetch_related('questions__choices').get(id=exam_id)
+    except Exercise.DoesNotExist:
+        return None
+    if exercise.lesson_id or not student_can_access_exercise(student, exercise):
+        return None
+    return exercise
 
 
 class StudentExamsListView(APIView):
@@ -37,7 +50,7 @@ class StudentExamsListView(APIView):
         
         # Lấy danh sách grade của các khóa học đã mua
         enrolled_rows = list(
-            Enrollment.objects.filter(student=student)
+            Enrollment.objects.filter(student=student, course__published=True)
             .values_list('course_id', 'course__grade')
         )
         enrolled_courses = [grade for _, grade in enrolled_rows]
@@ -58,8 +71,8 @@ class StudentExamsListView(APIView):
         
         enrolled_grades = set([normalize_grade(g) for g in enrolled_courses if g])  # Loại bỏ None/empty
         
-        # Nếu chưa mua khóa học nào, không hiển thị bài kiểm tra nào
-        if not enrolled_grades:
+        # Nếu chưa tham gia khóa học nào, không hiển thị bài kiểm tra nào.
+        if not enrolled_course_ids:
             return Response([], status=status.HTTP_200_OK)
         
         # Get all exercises (có thể có lesson hoặc không)
@@ -97,27 +110,18 @@ class StudentExamsListView(APIView):
             if model_grade:
                 exercise_grade = model_grade
 
-            # Đề độc lập liên kết khóa học qua ExerciseSettings.course_id.
+            # Đề độc lập bắt buộc liên kết đúng khóa học học sinh đang tham gia.
             settings_obj = getattr(exercise, 'settings', None)
             settings_course_id = getattr(settings_obj, 'course_id', None) if settings_obj else None
-            if settings_course_id:
-                if settings_course_id not in enrolled_course_ids:
-                    continue
-                exercise_grade = settings_course_grades.get(settings_course_id) or exercise_grade
-            
-            # Ưu tiên 2: Nếu exercise có lesson, lấy grade từ course
-            elif exercise.lesson and exercise.lesson.module and exercise.lesson.module.course:
-                exercise_grade = exercise.lesson.module.course.grade
-            
-            # Nếu không có grade, bỏ qua (chỉ hiển thị cho người đã mua khóa học)
-            if not exercise_grade:
+            if not settings_course_id or settings_course_id not in enrolled_course_ids:
                 continue
+            exercise_grade = settings_course_grades.get(settings_course_id) or exercise_grade or ''
             
             # Normalize exercise grade để so sánh
             normalized_exercise_grade = normalize_grade(exercise_grade)
             
             # Chỉ hiển thị exercise có grade match với grade của course đã mua
-            if normalized_exercise_grade not in enrolled_grades:
+            if normalized_exercise_grade and normalized_exercise_grade not in enrolled_grades:
                 continue
             
             # Get settings if exists
@@ -134,7 +138,7 @@ class StudentExamsListView(APIView):
             # Map grade to level format (nếu cần)
             # Grade có thể là "1", "2", "3", "4", "5" hoặc "Lớp 1", "Lớp 2", etc.
             level_display = exercise_grade
-            if exercise_grade.isdigit():
+            if exercise_grade and exercise_grade.isdigit():
                 grade_num = int(exercise_grade)
                 if grade_num <= 2:
                     level_display = 'Khối 1–2'
@@ -174,18 +178,16 @@ class StudentExamDetailView(APIView):
 
     def get(self, request, pk):
         """Get exam detail"""
-        try:
-            exercise_domain = get_exercise(str(pk))
-        except NotFoundError:
+        exercise = _get_available_exam(request.user, pk)
+        if exercise is None:
             return Response(
                 {'detail': 'Exam not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        exercise_domain = get_exercise(str(pk))
         
         # Lấy cấu hình thật của đề (thời gian, điểm đạt, trộn câu hỏi...) thay vì
         # hằng số mặc định - trước đây đề 15 phút vẫn hiện 30 phút / điểm đạt 12.
-        exercise = Exercise.objects.select_related('settings').prefetch_related(
-            'questions__choices').get(id=pk)
         settings_obj = getattr(exercise, 'settings', None)
         duration_sec = getattr(settings_obj, 'time_limit_seconds', None) or 1800
         pass_score = getattr(settings_obj, 'pass_score', None)
@@ -254,6 +256,12 @@ class StudentExamStartView(APIView):
 
     def post(self, request, pk):
         """Start exam attempt"""
+        exercise = _get_available_exam(request.user, pk)
+        if exercise is None:
+            return Response(
+                {'detail': 'Bạn chưa được phép làm bài kiểm tra này'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         try:
             attempt_domain = start_attempt(str(pk), request.user)
         except NotFoundError:
@@ -283,7 +291,6 @@ class StudentExamStartView(APIView):
         }
         
         # Get questions for attempt
-        exercise = Exercise.objects.prefetch_related('questions__choices').get(id=pk)
         for question in exercise.questions.all():
             question_data = {
                 'id': str(question.id),
@@ -343,6 +350,23 @@ class StudentExamSubmitView(APIView):
     def post(self, request, pk, attempt_id):
         """Submit exam answers"""
         student = request.user
+        exercise = _get_available_exam(student, pk)
+        if exercise is None:
+            return Response(
+                {'detail': 'Bạn chưa được phép làm bài kiểm tra này'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            attempt = ExerciseAttempt.objects.get(
+                id=attempt_id,
+                exercise=exercise,
+                student=student,
+            )
+        except ExerciseAttempt.DoesNotExist:
+            return Response(
+                {'detail': 'Không tìm thấy lượt làm bài'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         
         # Submit all answers
         answers = request.data.get('answers', {})
@@ -383,6 +407,15 @@ class StudentExamResultView(APIView):
 
     def get(self, request, pk, attempt_id):
         """Get exam result"""
+        exercise = _get_available_exam(request.user, pk)
+        if exercise is None:
+            return Response({'detail': 'Exam not found'}, status=status.HTTP_404_NOT_FOUND)
+        if not ExerciseAttempt.objects.filter(
+            id=attempt_id,
+            exercise=exercise,
+            student=request.user,
+        ).exists():
+            return Response({'detail': 'Result not found'}, status=status.HTTP_404_NOT_FOUND)
         try:
             summary = get_attempt_summary(str(attempt_id))
         except NotFoundError:
@@ -406,6 +439,8 @@ class StudentExamRankingView(APIView):
     def get(self, request, pk):
         """Get exam ranking"""
         student = request.user
+        if _get_available_exam(student, pk) is None:
+            return Response({'detail': 'Exam not found'}, status=status.HTTP_404_NOT_FOUND)
         
         try:
             stats = exercise_stats(str(pk))
