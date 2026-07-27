@@ -87,9 +87,11 @@ def test_course_owner_can_reply_and_student_is_notified(lesson_question_data):
     )
 
     assert response.status_code == 201
+    assert response.data["item"]["student_name"] == student.get_full_name()
     replies = response.data["item"]["replies"]
     assert len(replies) == 1
     assert replies[0]["is_teacher"] is True
+    assert replies[0]["user_name"] == owner.get_full_name()
     assert replies[0]["content"] == "Giáo viên giải thích phần này cho em nhé."
     assert Notification.objects.filter(
         user=student,

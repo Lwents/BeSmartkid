@@ -55,6 +55,7 @@ def serialize_reply(rep: LessonQuestionReply, user=None, request=None):
     return {
         "id": str(rep.id),
         "user": rep.user.username,
+        "user_name": rep.user.get_full_name(),
         "avatar": avatar_for(rep.user, request),
         "gender": gender,
         "user_id": rep.user.id,
@@ -80,6 +81,7 @@ def serialize_question(q: LessonQuestion, user=None, request=None):
         "course_title": course.title if course else "",
         "student_id": q.student_id,
         "student": q.student.username,
+        "student_name": q.student.get_full_name(),
         "avatar": avatar_for(q.student, request),
         "gender": gender,
         "content": q.content,
