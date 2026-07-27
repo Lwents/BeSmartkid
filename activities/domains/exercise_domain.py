@@ -70,6 +70,7 @@ class ExerciseDomain:
                     'max_attempts': getattr(settings_obj, 'max_attempts', None),
                     'shuffle_questions': getattr(settings_obj, 'shuffle_questions', True),
                     'shuffle_choices': getattr(settings_obj, 'shuffle_choices', True),
+                    'show_answers': getattr(settings_obj, 'show_answers', 'always'),
                     'description': getattr(settings_obj, 'description', None),
                     'level': getattr(settings_obj, 'level', None),
                     'course_id': getattr(settings_obj, 'course_id', None),

@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
 
 from activities.tests.factories import UserFactory, LessonFactory, ExerciseFactory, QuestionFactory, ChoiceFactory, AttemptFactory, AnswerFactory
+from activities.domains.exercise_domain import ExerciseDomain
 
 # Models
 Exercise = apps.get_model("activities", "Exercise")
@@ -18,6 +19,7 @@ Question = apps.get_model("activities", "Question")
 Choice = apps.get_model("activities", "Choice")
 ExerciseAttempt = apps.get_model("activities", "ExerciseAttempt")
 ExerciseAnswer = apps.get_model("activities", "ExerciseAnswer")
+ExerciseSettings = apps.get_model("activities", "ExerciseSettings")
 # content.Lesson expected in your project
 Lesson = apps.get_model("content", "Lesson")
 
@@ -79,6 +81,16 @@ def test_admin_create_and_get_exercise(admin_auth_client):
     r_detail = client.get(f"{BASE}exercises/{data['id']}/")
     assert r_detail.status_code == 200
     assert r_detail.data["title"] == "Add test"
+
+
+@pytest.mark.django_db
+def test_exercise_domain_includes_show_answers():
+    exercise = Exercise.objects.create(title="Answer visibility", type="mcq", published=False)
+    ExerciseSettings.objects.create(exercise=exercise, show_answers="never")
+
+    domain = ExerciseDomain.from_model(exercise)
+
+    assert domain.settings["show_answers"] == "never"
 
 
 @pytest.mark.django_db
