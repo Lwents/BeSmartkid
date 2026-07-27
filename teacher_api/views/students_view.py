@@ -1,4 +1,4 @@
-from django.db.models import Count, Q, Prefetch
+from django.db.models import Avg, Q
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -6,8 +6,8 @@ from rest_framework.permissions import IsAuthenticated
 import logging
 
 from teacher_api.permissions import IsTeacher
-from content.models import Course, Enrollment, LessonProgress, Lesson
-from custom_account.models import UserModel
+from content.models import Course, Enrollment, LessonProgress
+from activities.models import ExerciseAttempt
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ class TeacherStudentsView(APIView):
                 'course__modules',
                 'course__modules__lessons'
             ).order_by('-enrolled_at')
+            teacher_course_ids = Course.objects.filter(owner=teacher).values_list('id', flat=True)
             
             # Group by student
             students_dict = {}
@@ -86,15 +87,14 @@ class TeacherStudentsView(APIView):
                         student_username = getattr(student, 'username', 'N/A')
                         student_email = getattr(student, 'email', '')
                         
-                        # Calculate average score from exams/assignments
-                        avg_score = 0.0
-                        try:
-                            from assignments.models import Assignment
-                            submissions = Assignment.objects.filter(student=student, score__isnull=False)
-                            if submissions.exists():
-                                avg_score = submissions.aggregate(models.Avg('score'))['score__avg'] or 0.0
-                        except Exception:
-                            pass
+                        attempts = ExerciseAttempt.objects.filter(
+                            student=student,
+                            score__isnull=False,
+                        ).filter(
+                            Q(exercise__lesson__module__course__owner=teacher)
+                            | Q(exercise__settings__course_id__in=teacher_course_ids)
+                        )
+                        avg_score = attempts.aggregate(value=Avg('score'))['value'] or 0.0
                         
                         # Get last activity time
                         last_active = 'Chưa có'
@@ -208,4 +208,3 @@ class TeacherStudentsView(APIView):
                 'page': 1,
                 'pageSize': 20
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-

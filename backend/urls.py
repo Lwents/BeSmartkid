@@ -19,12 +19,9 @@ from django.http import Http404, HttpResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from dj_rest_auth.jwt_auth import get_refresh_view
 import mimetypes
 import os
 import re
-
-from custom_account.api.views.auth_view import GoogleLogin
 
 
 
@@ -81,22 +78,13 @@ def media_stream(request, path):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/account/', include("custom_account.urls")),
-    path('api/ai_personalization/', include('ai_personalization.urls')),
     path('api/content/', include('content.urls')),
     path('api/activities/', include('activities.urls')),
-    path('api/events/', include('events.api.urls')),
-    # path('api/assignments/', include('assignments.urls')),  # Temporarily disabled - import errors
     path('api/admin/', include('admin_api.urls')),
     path('api/teacher/', include('teacher_api.urls')),
     path('api/student/', include('student_api.urls')),
     path('api/media/stream/<path:path>', media_stream, name='media-stream'),
     path("", home),
-
-    path("api/auth/", include("dj_rest_auth.urls")),
-    path('api/auth/', include('allauth.socialaccount.urls')),
-    path('api/auth/google/', GoogleLogin.as_view(), name='google_login'),
-
-    path('api/auth/token/refresh/', get_refresh_view().as_view(), name='token_refresh'),
 ]
 
 # Serve media files in development

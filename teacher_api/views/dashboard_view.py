@@ -7,7 +7,6 @@ from rest_framework.permissions import IsAuthenticated
 from teacher_api.permissions import IsTeacher
 from content.models import Course, Enrollment, Lesson, LessonProgress
 from activities.models import Exercise, ExerciseAttempt
-from school.models import ClassroomModel
 from custom_account.models import UserModel
 
 

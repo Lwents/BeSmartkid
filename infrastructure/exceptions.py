@@ -20,18 +20,6 @@ except ImportError:  # pragma: no cover - optional app
     ContentDomainValidationError = ContentNotFoundError = ContentInvalidOperation = None
 
 try:
-    from school.services.exceptions import (
-        DomainValidationError as SchoolDomainValidationError,
-        NotFoundError as SchoolNotFoundError,
-        InvalidOperation as SchoolInvalidOperation,
-        PermissionDenied as SchoolPermissionDenied,
-        DuplicateError as SchoolDuplicateError,
-    )
-except ImportError:  # pragma: no cover
-    SchoolDomainValidationError = SchoolNotFoundError = SchoolInvalidOperation = None
-    SchoolPermissionDenied = SchoolDuplicateError = None
-
-try:
     from activities.services.exceptions import (
         ValidationError as ActivitiesValidationError,
         NotFoundError as ActivitiesNotFoundError,
@@ -148,7 +136,6 @@ def custom_exception_handler(exc, context):
     # -------------------------------
     validation_errors = _as_tuple(
         ContentDomainValidationError,
-        SchoolDomainValidationError,
         ActivitiesValidationError,
         AccountDomainError,
         IncorrectPasswordError,
@@ -157,22 +144,17 @@ def custom_exception_handler(exc, context):
 
     not_found_errors = _as_tuple(
         ContentNotFoundError,
-        SchoolNotFoundError,
         ActivitiesNotFoundError,
         UserNotFoundError,
     )
 
     permission_errors = _as_tuple(
-        SchoolPermissionDenied,
         ActivitiesPermissionDenied,
     )
 
     invalid_operation_errors = _as_tuple(
         ContentInvalidOperation,
-        SchoolInvalidOperation,
     )
-
-    duplicate_errors = _as_tuple(SchoolDuplicateError,)
 
     personalization_errors = _as_tuple(
         PersonalizationError,
@@ -196,9 +178,6 @@ def custom_exception_handler(exc, context):
 
     if invalid_operation_errors and isinstance(exc, invalid_operation_errors):
         return _build_error_response(str(exc) or "Invalid operation.", status.HTTP_400_BAD_REQUEST, "invalid_operation")
-
-    if duplicate_errors and isinstance(exc, duplicate_errors):
-        return _build_error_response(str(exc) or "Duplicate detected.", status.HTTP_409_CONFLICT, "duplicate_error")
 
     if personalization_errors and isinstance(exc, personalization_errors):
         return _build_error_response(str(exc) or "Personalization error.", status.HTTP_400_BAD_REQUEST, "personalization_error")

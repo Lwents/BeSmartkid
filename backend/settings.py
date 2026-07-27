@@ -88,14 +88,11 @@ INSTALLED_APPS = [
 
     # Project apps
     'custom_account',
-    'school',
     'content',
     'activities',
-    'assignments',
     'progress',
     'gamification',
     'ai_personalization',
-    'events',
     'admin_api',
     'teacher_api',
     'student_api',
