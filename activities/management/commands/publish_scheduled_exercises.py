@@ -12,6 +12,10 @@ from django.utils import timezone
 from django.apps import apps
 from django.db import transaction
 
+from activities.services.exam_notification_service import (
+    notify_enrolled_students_about_exam,
+)
+
 
 class Command(BaseCommand):
     help = 'Publish scheduled exercises and close expired ones'
@@ -35,6 +39,7 @@ class Command(BaseCommand):
                 exercise = settings.exercise
                 exercise.published = True
                 exercise.save(update_fields=['published'])
+                notify_enrolled_students_about_exam(exercise)
                 
                 # Clear scheduled_at after publishing
                 settings.scheduled_at = None
@@ -83,4 +88,3 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.SUCCESS(f'Successfully closed {closed_count} exercise(s)')
                 )
-

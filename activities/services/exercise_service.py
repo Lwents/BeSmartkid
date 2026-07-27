@@ -175,6 +175,12 @@ def save_exercise(domain: ExerciseDomain) -> ExerciseDomain:
             defaults=defaults
         )
 
+    if ex.published:
+        from activities.services.exam_notification_service import (
+            notify_enrolled_students_about_exam,
+        )
+        notify_enrolled_students_about_exam(ex)
+
     return ExerciseDomain.from_model(ex)
 
 
