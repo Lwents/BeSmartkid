@@ -5,10 +5,16 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from teacher_api.permissions import IsTeacher
-from content.models import Course, Enrollment, Lesson
+from content.models import Course, Enrollment, Lesson, LessonProgress
 from activities.models import Exercise, ExerciseAttempt
 from school.models import ClassroomModel
 from custom_account.models import UserModel
+
+
+def _percentage(part, total):
+    if total <= 0:
+        return 0
+    return min(100, max(0, round(part * 100 / total)))
 
 
 class TeacherDashboardView(APIView):
@@ -33,13 +39,19 @@ class TeacherDashboardView(APIView):
         total_courses = teacher_courses.count()
         
         # Total students (unique students enrolled in teacher's courses)
-        total_students = Enrollment.objects.filter(
+        enrollments_query = Enrollment.objects.filter(
             course__owner=teacher
-        ).values('student').distinct().count()
+        )
+        student_ids = enrollments_query.values_list('student_id', flat=True).distinct()
+        total_students = student_ids.count()
         
         # Total lessons/assignments (count lessons in teacher's courses)
         total_lessons = Lesson.objects.filter(
             module__course__owner=teacher
+        ).count()
+        published_lessons = Lesson.objects.filter(
+            module__course__owner=teacher,
+            published=True,
         ).count()
         
         # Get teacher's courses with enrollment counts (for dashboard display)
@@ -69,11 +81,22 @@ class TeacherDashboardView(APIView):
             | Q(settings__course_id__in=course_ids)
         ).distinct()
         total_exams = exams_query.count()
+        published_exams = exams_query.filter(published=True).count()
 
-        # Lượt học sinh đã nộp bài trên các đề đó.
-        total_attempts = ExerciseAttempt.objects.filter(
-            exercise__in=exams_query, finished_at__isnull=False
-        ).count()
+        attempts_query = ExerciseAttempt.objects.filter(exercise__in=exams_query)
+        all_attempts = attempts_query.count()
+        total_attempts = attempts_query.filter(finished_at__isnull=False).count()
+
+        active_students = UserModel.objects.filter(id__in=student_ids).filter(
+            Q(lesson_progress__lesson__module__course__owner=teacher)
+            | Q(exercise_attempts__exercise__in=exams_query)
+        ).distinct().count()
+
+        lesson_progress_query = LessonProgress.objects.filter(
+            lesson__module__course__owner=teacher
+        )
+        started_lessons = lesson_progress_query.count()
+        completed_lessons = lesson_progress_query.filter(completed=True).count()
 
         return Response({
             'stats': {
@@ -83,6 +106,15 @@ class TeacherDashboardView(APIView):
                 'exams': total_exams,
                 'attempts': total_attempts,
             },
+            'rates': {
+                'coursePublished': _percentage(
+                    teacher_courses.filter(published=True).count(), total_courses
+                ),
+                'studentActive': _percentage(active_students, total_students),
+                'lessonPublished': _percentage(published_lessons, total_lessons),
+                'examPublished': _percentage(published_exams, total_exams),
+                'attemptSubmitted': _percentage(total_attempts, all_attempts),
+                'completion': _percentage(completed_lessons, started_lessons),
+            },
             'myCourses': my_courses
         }, status=status.HTTP_200_OK)
-
