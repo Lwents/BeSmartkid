@@ -45,6 +45,10 @@ def test_admin_notification_api_hides_teacher_question_categories():
         format="json",
         HTTP_HOST="localhost",
     )
+    after_read_all = client.get(
+        "/api/admin/notifications/?limit=100",
+        HTTP_HOST="localhost",
+    )
 
     assert list_response.status_code == 200
     assert [item["id"] for item in list_response.data["notifications"]] == [str(visible.id)]
@@ -52,6 +56,8 @@ def test_admin_notification_api_hides_teacher_question_categories():
     assert hidden_read_response.status_code == 404
     assert read_all_response.status_code == 200
     assert read_all_response.data["updated_count"] == 1
+    assert after_read_all.status_code == 200
+    assert after_read_all.data["unread_count"] == 0
     hidden.refresh_from_db()
     visible.refresh_from_db()
     assert hidden.is_read is False
