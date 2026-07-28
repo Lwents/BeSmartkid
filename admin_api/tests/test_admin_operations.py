@@ -174,6 +174,28 @@ def test_system_configuration_rejects_invalid_form_values(admin_client):
 
 
 @pytest.mark.django_db
+def test_admin_can_test_saved_email_configuration(admin_client, mocker):
+    _admin, client = admin_client
+    email_service = mocker.patch(
+        'admin_api.views.system_admin_view.get_email_service'
+    ).return_value
+
+    response = client.post(
+        '/api/admin/system/test-email/',
+        {'email': 'receiver@example.com'},
+        format='json',
+    )
+
+    assert response.status_code == 200
+    email_service.send.assert_called_once_with(
+        to='receiver@example.com',
+        subject='SmartKid - Kiểm tra cấu hình email',
+        body='Email máy chủ SmartKid đã được cấu hình và gửi thành công.',
+    )
+    assert AdminAuditLog.objects.filter(action='system.email.test').exists()
+
+
+@pytest.mark.django_db
 def test_security_policy_updates_false_values_and_is_audited(admin_client):
     _admin, client = admin_client
     SecurityPolicy.objects.create(
@@ -242,6 +264,24 @@ def test_backup_endpoint_creates_a_real_compressed_fixture(admin_client, tmp_pat
 
 
 @pytest.mark.django_db
+def test_backup_list_is_paginated(admin_client):
+    _admin, client = admin_client
+    for index in range(3):
+        SystemBackup.objects.create(
+            file_name=f'backup-page-{index}.json.gz',
+            status=SystemBackup.STATUS_COMPLETED,
+            size_bytes=index + 1,
+        )
+
+    response = client.get('/api/admin/system/backups/?pageSize=2')
+
+    assert response.status_code == 200
+    assert len(response.data['results']) == 2
+    assert response.data['count'] == 3
+    assert response.data['next']
+
+
+@pytest.mark.django_db
 def test_activity_log_combines_real_auth_and_admin_events(admin_client):
     admin, client = admin_client
     AuthAttempt.objects.create(
@@ -262,6 +302,68 @@ def test_activity_log_combines_real_auth_and_admin_events(admin_client):
     assert response.status_code == 200
     actions = {item['action'] for item in response.data['items']}
     assert {'user.login', 'user.update'} <= actions
+
+
+@pytest.mark.django_db
+def test_admin_lists_expose_working_next_page_links(admin_client):
+    admin, client = admin_client
+    for index in range(3):
+        UserModel.objects.create_user(
+            username=f'page-student-{index}',
+            email=f'page-student-{index}@example.com',
+            password='password123',
+            role='student',
+        )
+    subject = Subject.objects.create(title='Phân trang', slug='phan-trang-admin')
+    for index in range(3):
+        Course.objects.create(
+            title=f'Khóa phân trang {index}', subject=subject, owner=admin,
+        )
+        AdminAuditLog.objects.create(
+            actor=admin, action=f'pagination.test.{index}', target_type='test',
+        )
+
+    users = client.get('/api/account/admin/users/?page=1&pageSize=2')
+    courses = client.get('/api/admin/courses/?page=1&pageSize=2')
+    activity = client.get('/api/admin/activity-logs/?page=1&pageSize=2')
+
+    for response in (users, courses, activity):
+        assert response.status_code == 200
+        assert len(response.data['results']) == 2
+        assert response.data['next']
+        assert response.data['next'].startswith('http://testserver/')
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('path', [
+    '/api/account/admin/users/?page=abc',
+    '/api/account/admin/users/?pageSize=0',
+    '/api/admin/courses/?page=-1',
+    '/api/admin/courses/?pageSize=101',
+    '/api/admin/activity-logs/?pageSize=abc',
+])
+def test_admin_lists_reject_invalid_pagination(admin_client, path):
+    _admin, client = admin_client
+
+    response = client.get(path)
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_dashboard_uses_latest_persisted_backup(admin_client):
+    _admin, client = admin_client
+    backup = SystemBackup.objects.create(
+        file_name='dashboard-backup.json.gz',
+        status=SystemBackup.STATUS_COMPLETED,
+        size_bytes=12,
+    )
+
+    response = client.get('/api/admin/dashboard/')
+
+    assert response.status_code == 200
+    assert response.data['system']['backup']['status'] == SystemBackup.STATUS_COMPLETED
+    assert response.data['system']['backup']['lastRun'] == backup.created_at.isoformat()
 
 
 @pytest.mark.django_db

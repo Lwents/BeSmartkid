@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from admin_api.permissions import IsAdmin
+from admin_api.models import SystemBackup
 from custom_account.models import UserModel, AuthAttempt, UserPresence
 from content.models import Course, Lesson
 
@@ -144,16 +145,15 @@ class AdminDashboardView(APIView):
             except Exception:
                 disk = None
 
-        backup_entries = cache.get('system_backups', []) or []
-        latest_backup = backup_entries[0] if backup_entries else None
+        latest_backup = SystemBackup.objects.order_by('-created_at').first()
 
         return {
             'cpuP95': round(cpu, 2) if cpu is not None else None,
             'ramP95': round(ram, 2) if ram is not None else None,
             'disk': round(disk, 2) if disk is not None else None,
             'backup': {
-                'lastRun': latest_backup.get('createdAt') if latest_backup else None,
-                'status': latest_backup.get('notes') if latest_backup else 'no_backup',
+                'lastRun': latest_backup.created_at.isoformat() if latest_backup else None,
+                'status': latest_backup.status if latest_backup else 'no_backup',
             },
         }
 
@@ -208,4 +208,3 @@ class AdminActiveUsersRealtimeView(AdminDashboardView):
         now = timezone.now()
         active_users = self._get_active_users(now)
         return Response(active_users, status=status.HTTP_200_OK)
-

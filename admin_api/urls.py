@@ -9,7 +9,7 @@ from admin_api.views import (
     AdminUserReportView,
     AdminLearningReportView, AdminContentReportView,
     AdminSystemConfigView, AdminSystemBackupView, AdminSystemRestoreView,
-    AdminSystemHealthView,
+    AdminSystemHealthView, AdminSystemTestEmailView,
     AdminActivityLogView,
     AdminSecurityPolicyView,
     AdminSessionListView,
@@ -52,6 +52,7 @@ urlpatterns = [
     path('system/backups/', AdminSystemBackupView.as_view(), name='system-backups'),
     path('system/restore/', AdminSystemRestoreView.as_view(), name='system-restore'),
     path('system/health/', AdminSystemHealthView.as_view(), name='system-health'),
+    path('system/test-email/', AdminSystemTestEmailView.as_view(), name='system-test-email'),
 
     # Activity Logs
     path('activity-logs/', AdminActivityLogView.as_view(), name='activity-logs'),

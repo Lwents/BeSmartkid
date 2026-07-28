@@ -1,10 +1,12 @@
 import gzip
 import hashlib
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management import call_command
+from django.utils import timezone
 
 from admin_api.models import AdminAuditLog, SystemBackup
 from custom_account.services.login_security_service import get_client_ip
@@ -62,6 +64,7 @@ def create_system_backup(*, user, notes='') -> SystemBackup:
         backup.checksum = digest.hexdigest()
         backup.status = SystemBackup.STATUS_COMPLETED
         backup.save(update_fields=['file_name', 'size_bytes', 'checksum', 'status'])
+        _remove_expired_backups()
         return backup
     except Exception:
         target.unlink(missing_ok=True)
@@ -69,3 +72,19 @@ def create_system_backup(*, user, notes='') -> SystemBackup:
         backup.status = SystemBackup.STATUS_FAILED
         backup.save(update_fields=['file_name', 'status'])
         raise
+
+
+def _remove_expired_backups():
+    from admin_api.runtime_config import get_runtime_config
+
+    retention_days = int(
+        get_runtime_config().get('backup', {}).get('retentionDays') or 30
+    )
+    cutoff = timezone.now() - timedelta(days=max(1, retention_days))
+    expired = list(SystemBackup.objects.filter(created_at__lt=cutoff))
+    backup_dir = Path(settings.MEDIA_ROOT) / 'system_backups'
+    for item in expired:
+        safe_name = Path(item.file_name).name
+        if safe_name == item.file_name:
+            (backup_dir / safe_name).unlink(missing_ok=True)
+        item.delete()

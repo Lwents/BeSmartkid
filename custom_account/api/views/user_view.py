@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
 from admin_api.services import record_admin_action
+from admin_api.pagination import page_link, positive_int_query
 from custom_account.models import UserModel
 from custom_account.domains.user_domain import UserDomain
 from custom_account.api.dtos.user_dto import UpdateUserInput, UserPublicOutput, UserAdminOutput, UserInput
@@ -166,12 +167,14 @@ class AdminUserListView(RoleBasedOutputMixin, APIView):
     def get(self, request):
         import html
         import re
-        
+
         try:
             # Get query parameters
             role = request.query_params.get('role')
-            page = int(request.query_params.get('page', 1))
-            page_size = int(request.query_params.get('pageSize', request.query_params.get('page_size', 50)))
+            page = positive_int_query(request, 'page', 1)
+            page_size = positive_int_query(
+                request, 'pageSize', 50, aliases=('page_size',), maximum=100
+            )
             q = request.query_params.get('q')
             status_filter = request.query_params.get('status')
             from_date = request.query_params.get('from')
@@ -219,17 +222,22 @@ class AdminUserListView(RoleBasedOutputMixin, APIView):
                     'last_login': getattr(user_domain, 'last_login', None),
                 })
             
+            total_pages = result['total_pages']
             return Response({
                 'results': users_data,
                 'count': result['count'],
                 'page': result['page'],
                 'page_size': result['page_size'],
-                'total_pages': result['total_pages']
+                'total_pages': total_pages,
+                'next': page_link(request, page + 1) if page < total_pages else None,
+                'previous': page_link(request, page - 1) if page > 1 else None,
             }, status=status.HTTP_200_OK)
-        
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
+            logger.exception('Admin user list failed')
             return Response(
-                {"detail": f"An error occurred: {str(e)}"}, 
+                {"detail": "Không thể tải danh sách người dùng."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     

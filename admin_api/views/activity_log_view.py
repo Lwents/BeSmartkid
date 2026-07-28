@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from admin_api.models import AdminAuditLog
+from admin_api.pagination import page_link, positive_int_query
 from admin_api.permissions import IsAdmin
 from custom_account.models import AuthAttempt
 
@@ -26,8 +27,10 @@ class AdminActivityLogView(APIView):
         user_id = (request.query_params.get('userId') or '').strip()
         from_date = self._parse_date(request.query_params.get('from'))
         to_date = self._parse_date(request.query_params.get('to'))
-        page = self._positive_int(request.query_params.get('page'), 1)
-        page_size = min(self._positive_int(request.query_params.get('pageSize'), 20), 100)
+        page = positive_int_query(request, 'page', 1)
+        page_size = positive_int_query(
+            request, 'pageSize', 20, aliases=('page_size',), maximum=100
+        )
 
         audit_qs = AdminAuditLog.objects.select_related('actor')
         auth_qs = AuthAttempt.objects.select_related('user')
@@ -60,11 +63,23 @@ class AdminActivityLogView(APIView):
         items.sort(key=lambda item: item['timestamp'], reverse=True)
         total = len(items)
         start = (page - 1) * page_size
+        page_items = items[start:start + page_size]
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        if page > total_pages:
+            return Response(
+                {'page': 'Trang yêu cầu vượt quá số trang hiện có.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response({
-            'items': items[start:start + page_size],
+            'results': page_items,
+            'items': page_items,
             'total': total,
             'page': page,
             'pageSize': page_size,
+            'page_size': page_size,
+            'total_pages': total_pages,
+            'next': page_link(request, page + 1) if page < total_pages else None,
+            'previous': page_link(request, page - 1) if page > 1 else None,
         }, status=status.HTTP_200_OK)
 
     def get_detail(self, log_id):
@@ -125,12 +140,6 @@ class AdminActivityLogView(APIView):
             return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
         except (TypeError, ValueError):
             return None
-
-    def _positive_int(self, value, default):
-        try:
-            return max(1, int(value))
-        except (TypeError, ValueError):
-            return default
 
     def _parse_uuid(self, value):
         try:

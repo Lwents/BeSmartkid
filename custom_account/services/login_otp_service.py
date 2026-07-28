@@ -7,6 +7,7 @@ from django.contrib.auth.hashers import make_password, check_password
 
 from custom_account.models import LoginOTP, UserModel
 from infrastructure.email_service import get_email_service, render_email_template
+from admin_api.runtime_config import site_name
 
 
 OTP_EXP_MINUTES = getattr(settings, 'LOGIN_OTP_EXPIRE_MINUTES', 5)
@@ -58,7 +59,7 @@ def request_login_otp(user: UserModel) -> None:
         f"Mã sẽ hết hạn sau {OTP_EXP_MINUTES} phút.\n\n"
         "Nếu bạn không yêu cầu, hãy bỏ qua email này và không chia sẻ mã cho bất kỳ ai."
     )
-    brand = getattr(settings, 'SITE_NAME', 'SmartKid')
+    brand = site_name()
     support_email = getattr(settings, 'SUPPORT_EMAIL', getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@smartkid.vn'))
     html_body = render_email_template(
         'emails/gmail_base.html',

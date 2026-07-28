@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from admin_api.permissions import IsAdmin
+from admin_api.pagination import page_link, positive_int_query
 from admin_api.services import record_admin_action
 from content.models import Course, Subject, Module, Lesson, Enrollment
 from custom_account.models import UserModel
@@ -53,8 +54,10 @@ class AdminCourseListView(APIView):
         status_filter = request.query_params.get('status')
         from_date = request.query_params.get('from')
         to_date = request.query_params.get('to')
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('pageSize', 20))
+        page = positive_int_query(request, 'page', 1)
+        page_size = positive_int_query(
+            request, 'pageSize', 20, aliases=('page_size',), maximum=100
+        )
 
         # Build queryset
         queryset = Course.objects.select_related('subject', 'owner').prefetch_related('modules__lessons')
@@ -97,11 +100,16 @@ class AdminCourseListView(APIView):
         queryset = queryset.annotate(
             lessons_count=Count('modules__lessons', distinct=True),
             enrollments_count=Count('enrollments', distinct=True)
-        )
+        ).order_by('-created_on', 'id')
 
         # Paginate
         paginator = Paginator(queryset, page_size)
-        page_obj = paginator.get_page(page)
+        if page > max(paginator.num_pages, 1):
+            return Response(
+                {'page': 'Trang yêu cầu vượt quá số trang hiện có.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        page_obj = paginator.page(page)
 
         # Serialize
         items = []
@@ -127,8 +135,15 @@ class AdminCourseListView(APIView):
             })
 
         return Response({
+            'results': items,
             'items': items,
-            'total': paginator.count
+            'count': paginator.count,
+            'total': paginator.count,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': paginator.num_pages,
+            'next': page_link(request, page + 1) if page_obj.has_next() else None,
+            'previous': page_link(request, page - 1) if page_obj.has_previous() else None,
         }, status=status.HTTP_200_OK)
 
 

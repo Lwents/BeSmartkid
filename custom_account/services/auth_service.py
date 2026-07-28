@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 
 from custom_account.models import UserModel
 from infrastructure.email_service import get_email_service, render_email_template
+from admin_api.runtime_config import frontend_base_url, site_name
 
 
 
@@ -23,12 +24,12 @@ def reset_password_request(email: str) -> None:
         raise ValueError("User not found")
 
     token = token_generator.make_token(user)
-    frontend_base = (settings.FRONTEND_URL or "").rstrip("/") or "http://localhost:5173"
+    frontend_base = frontend_base_url()
     reset_link = f"{frontend_base}/auth/reset-password?email={quote(user.email)}&token={quote(token)}"
 
     try:
         email_service = get_email_service()
-        brand = getattr(settings, 'SITE_NAME', 'SmartKid')
+        brand = site_name()
         support_email = getattr(
             settings, 'SUPPORT_EMAIL', getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@smartkid.vn')
         )

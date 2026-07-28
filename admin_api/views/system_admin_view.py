@@ -1,10 +1,11 @@
 import shutil
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from uuid import UUID
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import send_mail
 from django.core.validators import validate_email
+from django.core.paginator import Paginator
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.views import APIView
@@ -14,6 +15,9 @@ from rest_framework.permissions import IsAuthenticated
 from admin_api.permissions import IsAdmin
 from admin_api.models import AdminAuditLog, SystemBackup, SystemConfiguration
 from admin_api.services import create_system_backup, record_admin_action
+from admin_api.pagination import page_link, positive_int_query
+from admin_api.runtime_config import invalidate_runtime_config, timezone_name
+from infrastructure.email_service import get_email_service
 
 # Try to import psutil for system metrics, fallback to basic implementation
 try:
@@ -93,6 +97,7 @@ class AdminSystemConfigView(APIView):
         config.version += 1
         config.updated_by = request.user
         config.save()
+        invalidate_runtime_config()
         record_admin_action(
             request=request,
             action='system.config.update',
@@ -258,8 +263,28 @@ class AdminSystemBackupView(APIView):
 
     def get(self, request):
         """List backups"""
-        backups = [self._serialize(item) for item in SystemBackup.objects.all()[:20]]
-        return Response(backups, status=status.HTTP_200_OK)
+        page = positive_int_query(request, 'page', 1)
+        page_size = positive_int_query(
+            request, 'pageSize', 20, aliases=('page_size',), maximum=100
+        )
+        paginator = Paginator(SystemBackup.objects.all(), page_size)
+        if page > max(paginator.num_pages, 1):
+            return Response(
+                {'page': 'Trang yêu cầu vượt quá số trang hiện có.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        page_obj = paginator.page(page)
+        backups = [self._serialize(item) for item in page_obj]
+        return Response({
+            'results': backups,
+            'backups': backups,
+            'count': paginator.count,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': paginator.num_pages,
+            'next': page_link(request, page + 1) if page_obj.has_next() else None,
+            'previous': page_link(request, page - 1) if page_obj.has_previous() else None,
+        }, status=status.HTTP_200_OK)
 
     def post(self, request):
         """Create backup"""
@@ -290,9 +315,13 @@ class AdminSystemBackupView(APIView):
             )
 
     def _serialize(self, backup):
+        try:
+            created_at = timezone.localtime(backup.created_at, ZoneInfo(timezone_name()))
+        except ZoneInfoNotFoundError:
+            created_at = timezone.localtime(backup.created_at)
         return {
             'id': str(backup.id),
-            'title': f'Sao lưu {backup.created_at:%d/%m/%Y %H:%M}',
+            'title': f'Sao lưu {created_at:%d/%m/%Y %H:%M}',
             'fileName': backup.file_name,
             'createdAt': backup.created_at.isoformat(),
             'sizeBytes': backup.size_bytes,
@@ -361,19 +390,43 @@ class AdminSystemTestEmailView(APIView):
         email = request.data.get('email')
 
         if not email:
-            return Response({'error': 'email required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Vui lòng nhập email nhận thư kiểm tra.'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            send_mail(
-                subject='Test Email from SmartKid',
-                message='This is a test email from the SmartKid admin panel.',
-                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com'),
-                recipient_list=[email],
-                fail_silently=False
+            validate_email(email)
+        except DjangoValidationError:
+            return Response({'detail': 'Địa chỉ email chưa hợp lệ.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            get_email_service().send(
+                to=email,
+                subject='SmartKid - Kiểm tra cấu hình email',
+                body='Email máy chủ SmartKid đã được cấu hình và gửi thành công.',
             )
-            return Response({'success': True, 'message': 'Test email sent'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            record_admin_action(
+                request=request,
+                action='system.email.test',
+                target_type='email',
+                details={'recipient': email},
+            )
+            return Response(
+                {'success': True, 'detail': 'Đã gửi email kiểm tra.'},
+                status=status.HTTP_200_OK,
+            )
+        except Exception:
+            record_admin_action(
+                request=request,
+                action='system.email.test',
+                target_type='email',
+                status='failed',
+                details={'recipient': email},
+            )
+            return Response(
+                {'detail': 'Không gửi được email. Hãy kiểm tra SMTP và mật khẩu ứng dụng trên máy chủ.'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
 
 class AdminSystemHealthView(APIView):
