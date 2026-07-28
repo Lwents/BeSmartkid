@@ -33,14 +33,13 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
 
-      - name: Pull code and restart Docker services
+      - name: Trigger protected server deployment
         run: |
           ssh \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            root@160.250.181.242 \
-            'cd /opt/smartkid-backend && git fetch origin && git reset --hard origin/main && deploy'
+            root@160.250.181.242
 
       - name: Verify public endpoint
         run: |

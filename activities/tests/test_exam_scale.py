@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from activities.models import Notification
+from activities.models import ExerciseAttempt, Notification
 from content.models import Course, Enrollment
 from custom_account.models import UserModel
 
@@ -96,6 +96,10 @@ def test_fifty_ai_questions_and_ten_students_complete_without_data_loss():
         assert submitted.status_code == 200
         assert submitted.data["score"] == 100.0
         assert submitted.data["correctCount"] == 50
+        attempt = ExerciseAttempt.objects.get(id=started.data["id"])
+        metadata = dict(attempt.metadata or {})
+        metadata["time_taken"] = 10
+        ExerciseAttempt.objects.filter(id=attempt.id).update(metadata=metadata)
 
     ranking_client = APIClient()
     ranking_client.force_authenticate(students[0])

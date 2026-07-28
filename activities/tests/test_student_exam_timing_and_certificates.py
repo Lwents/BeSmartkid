@@ -82,6 +82,9 @@ def test_reopening_attempt_keeps_original_deadline_and_expired_attempt_is_closed
 @pytest.mark.django_db
 def test_exam_detail_exposes_attempt_history_without_internal_ids_in_messages():
     student, exercise, _ = _exam_fixture(pass_score=65)
+    end_at = timezone.now() + timedelta(days=2)
+    exercise.settings.end_at = end_at
+    exercise.settings.save(update_fields=["end_at"])
     ExerciseAttempt.objects.create(
         exercise=exercise,
         student=student,
@@ -95,9 +98,11 @@ def test_exam_detail_exposes_attempt_history_without_internal_ids_in_messages():
 
     assert response.status_code == 200
     assert response.data["attemptsUsed"] == 1
+    assert response.data["maxAttempts"] == 2
     assert response.data["attemptsRemaining"] == 1
     assert response.data["lastScore"] == 70.0
     assert response.data["bestScore"] == 70.0
+    assert response.data["endAt"] == end_at.isoformat()
 
 
 @pytest.mark.django_db
