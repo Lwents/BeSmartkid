@@ -10,7 +10,7 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from admin_api.models import AdminAuditLog, SystemBackup, SystemConfiguration
-from content.models import Course, Lesson, Module, Subject
+from content.models import Course, Enrollment, Lesson, Module, Subject
 from custom_account.models import (
     AuthAttempt,
     SecurityPolicy,
@@ -455,28 +455,39 @@ def test_admin_cannot_delete_video_through_another_course(admin_client):
 
 
 @pytest.mark.django_db
-def test_admin_course_management_is_read_only(admin_client):
+def test_admin_can_delete_course_but_cannot_change_publication_state(admin_client):
     admin, client = admin_client
     subject = Subject.objects.create(title='Khoa học', slug='science-admin-state')
     course = Course.objects.create(title='Khóa cần quản lý', subject=subject, owner=admin)
+    course_id = str(course.id)
+    module = Module.objects.create(course=course, title='Chương cần xóa', position=1)
+    Lesson.objects.create(module=module, title='Bài cần xóa', position=1)
+    student = UserModel.objects.create(
+        username='course-delete-student',
+        email='course-delete-student@example.com',
+        role='student',
+    )
+    Enrollment.objects.create(course=course, student=student)
 
     detail = client.get(f'/api/admin/courses/{course.id}/')
-    delete_course = client.delete(f'/api/admin/courses/{course.id}/')
     removed_actions = [
         client.post(f'/api/admin/courses/{course.id}/{action}/')
         for action in (
             'approve', 'reject', 'publish', 'unpublish', 'archive', 'restore'
         )
     ]
+    delete_course = client.delete(f'/api/admin/courses/{course.id}/')
 
     assert detail.status_code == 200
-    assert delete_course.status_code == 405
     assert all(response.status_code == 404 for response in removed_actions)
-    course.refresh_from_db()
-    assert course.published is False
-    assert course.archived is False
-    assert not AdminAuditLog.objects.filter(
-        target_type='course', target_id=str(course.id)
+    assert delete_course.status_code == 200
+    assert delete_course.data['courseId'] == course_id
+    assert not Course.objects.filter(id=course_id).exists()
+    assert not Module.objects.filter(id=module.id).exists()
+    assert not Enrollment.objects.filter(course_id=course_id).exists()
+    assert AdminAuditLog.objects.filter(
+        action='course.delete', target_type='course', target_id=course_id,
+        actor=admin,
     ).exists()
 
 

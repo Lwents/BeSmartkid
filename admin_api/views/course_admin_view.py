@@ -183,6 +183,38 @@ class AdminCourseDetailView(APIView):
             'sections': sections
         }, status=status.HTTP_200_OK)
 
+    @transaction.atomic
+    def delete(self, request, pk):
+        try:
+            course = Course.objects.select_for_update().get(id=pk)
+        except Course.DoesNotExist:
+            return Response(
+                {'detail': 'Không tìm thấy khóa học cần xóa.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        course_id = str(course.id)
+        course_title = course.title
+        lessons_count = Lesson.objects.filter(module__course=course).count()
+        enrollments_count = Enrollment.objects.filter(course=course).count()
+        course.delete()
+        record_admin_action(
+            request=request,
+            action='course.delete',
+            target_type='course',
+            target_id=course_id,
+            details={
+                'title': course_title,
+                'lessonsCount': lessons_count,
+                'enrollments': enrollments_count,
+            },
+        )
+        return Response({
+            'success': True,
+            'courseId': course_id,
+            'message': 'Đã xóa khóa học.',
+        }, status=status.HTTP_200_OK)
+
 class AdminLessonVideoDeleteView(APIView):
     """Allow admins to remove a lesson video without deleting the lesson itself."""
     permission_classes = [IsAuthenticated, IsAdmin]
