@@ -9,36 +9,13 @@ from rest_framework.permissions import IsAuthenticated
 from admin_api.permissions import IsAdmin
 from admin_api.pagination import page_link, positive_int_query
 from admin_api.services import record_admin_action
-from content.models import Course, Subject, Module, Lesson, Enrollment
-from custom_account.models import UserModel
+from content.models import Course, Subject, Lesson, Enrollment
 
 
 def _course_status(course):
     if course.archived:
         return 'archived'
     return 'published' if course.published else 'draft'
-
-
-def _update_course_state(request, pk, action, published, archived=False):
-    try:
-        course = Course.objects.get(id=pk)
-    except Course.DoesNotExist:
-        return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    course.published = published
-    course.archived = archived
-    course.save(update_fields=['published', 'archived', 'updated_on'])
-    record_admin_action(
-        request=request,
-        action=f'course.{action}',
-        target_type='course',
-        target_id=course.id,
-        details={'title': course.title, 'status': _course_status(course)},
-    )
-    return Response({
-        'success': True,
-        'status': _course_status(course),
-    }, status=status.HTTP_200_OK)
 
 
 class AdminCourseListView(APIView):
@@ -206,17 +183,6 @@ class AdminCourseDetailView(APIView):
             'sections': sections
         }, status=status.HTTP_200_OK)
 
-    def delete(self, request, pk):
-        """Delete a course (admin only). Cascades to modules/lessons/enrollments."""
-        try:
-            course = Course.objects.get(id=pk)
-        except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        course.delete()
-        return Response({'success': True}, status=status.HTTP_204_NO_CONTENT)
-
-
 class AdminLessonVideoDeleteView(APIView):
     """Allow admins to remove a lesson video without deleting the lesson itself."""
     permission_classes = [IsAuthenticated, IsAdmin]
@@ -270,80 +236,3 @@ class AdminLessonVideoDeleteView(APIView):
             'lessonId': str(lesson.id),
             'published': lesson.published,
         }, status=status.HTTP_200_OK)
-
-
-class AdminCourseApproveView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request, pk):
-        """Approve a course"""
-        return _update_course_state(request, pk, 'approve', published=True)
-
-
-class AdminCourseRejectView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request, pk):
-        """Reject a course"""
-        return _update_course_state(request, pk, 'reject', published=False)
-
-
-class AdminCoursePublishView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request, pk):
-        """Publish a course"""
-        return _update_course_state(request, pk, 'publish', published=True)
-
-
-class AdminCourseUnpublishView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request, pk):
-        """Unpublish a course"""
-        return _update_course_state(request, pk, 'unpublish', published=False)
-
-
-class AdminCourseArchiveView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request, pk):
-        """Archive a course"""
-        return _update_course_state(
-            request, pk, 'archive', published=False, archived=True
-        )
-
-
-class AdminCourseRestoreView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request, pk):
-        """Restore an archived course"""
-        return _update_course_state(request, pk, 'restore', published=False)
-
-
-class AdminCourseBulkActionView(APIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def post(self, request):
-        """Bulk actions on courses"""
-        action = request.data.get('action')  # approve, reject, publish, archive
-        ids = request.data.get('ids', [])
-
-        if not ids:
-            return Response({'error': 'No IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
-
-        courses = Course.objects.filter(id__in=ids)
-
-        if action == 'approve':
-            courses.update(published=True, archived=False)
-        elif action == 'reject':
-            courses.update(published=False, archived=False)
-        elif action == 'publish':
-            courses.update(published=True, archived=False)
-        elif action == 'archive':
-            courses.update(published=False, archived=True)
-        else:
-            return Response({'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response({'success': True, 'count': courses.count()}, status=status.HTTP_200_OK)

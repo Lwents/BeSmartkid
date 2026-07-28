@@ -455,35 +455,29 @@ def test_admin_cannot_delete_video_through_another_course(admin_client):
 
 
 @pytest.mark.django_db
-def test_admin_course_actions_update_real_status_and_are_audited(admin_client):
+def test_admin_course_management_is_read_only(admin_client):
     admin, client = admin_client
     subject = Subject.objects.create(title='Khoa học', slug='science-admin-state')
     course = Course.objects.create(title='Khóa cần quản lý', subject=subject, owner=admin)
 
-    approved = client.post(f'/api/admin/courses/{course.id}/approve/')
-    archived = client.post(f'/api/admin/courses/{course.id}/archive/')
-    archived_detail = client.get(f'/api/admin/courses/{course.id}/')
-    restored = client.post(f'/api/admin/courses/{course.id}/restore/')
-    published = client.post(f'/api/admin/courses/{course.id}/publish/')
-    unpublished = client.post(f'/api/admin/courses/{course.id}/unpublish/')
-    rejected = client.post(f'/api/admin/courses/{course.id}/reject/')
+    detail = client.get(f'/api/admin/courses/{course.id}/')
+    delete_course = client.delete(f'/api/admin/courses/{course.id}/')
+    removed_actions = [
+        client.post(f'/api/admin/courses/{course.id}/{action}/')
+        for action in (
+            'approve', 'reject', 'publish', 'unpublish', 'archive', 'restore'
+        )
+    ]
 
-    assert approved.data['status'] == 'published'
-    assert archived.data['status'] == 'archived'
-    assert archived_detail.data['status'] == 'archived'
-    assert restored.data['status'] == 'draft'
-    assert published.data['status'] == 'published'
-    assert unpublished.data['status'] == 'draft'
-    assert rejected.data['status'] == 'draft'
+    assert detail.status_code == 200
+    assert delete_course.status_code == 405
+    assert all(response.status_code == 404 for response in removed_actions)
     course.refresh_from_db()
     assert course.published is False
     assert course.archived is False
-    assert set(AdminAuditLog.objects.filter(
+    assert not AdminAuditLog.objects.filter(
         target_type='course', target_id=str(course.id)
-    ).values_list('action', flat=True)) == {
-        'course.approve', 'course.archive', 'course.restore',
-        'course.publish', 'course.unpublish', 'course.reject',
-    }
+    ).exists()
 
 
 @pytest.mark.django_db

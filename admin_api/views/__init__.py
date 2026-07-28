@@ -1,10 +1,7 @@
 from .dashboard_view import AdminDashboardView, AdminActiveUsersRealtimeView
 from .course_admin_view import (
     AdminCourseListView, AdminCourseDetailView,
-    AdminCourseApproveView, AdminCourseRejectView,
-    AdminCoursePublishView, AdminCourseUnpublishView,
-    AdminCourseArchiveView, AdminCourseRestoreView,
-    AdminCourseBulkActionView, AdminLessonVideoDeleteView
+    AdminLessonVideoDeleteView
 )
 from .report_admin_view import (
     AdminUserReportView,
@@ -35,10 +32,7 @@ from .ai_settings_view import AdminAISettingsView
 __all__ = [
     'AdminDashboardView', 'AdminActiveUsersRealtimeView',
     'AdminCourseListView', 'AdminCourseDetailView',
-    'AdminCourseApproveView', 'AdminCourseRejectView',
-    'AdminCoursePublishView', 'AdminCourseUnpublishView',
-    'AdminCourseArchiveView', 'AdminCourseRestoreView',
-    'AdminCourseBulkActionView', 'AdminLessonVideoDeleteView',
+    'AdminLessonVideoDeleteView',
     'AdminUserReportView',
     'AdminLearningReportView', 'AdminContentReportView',
     'AdminSystemConfigView', 'AdminSystemBackupView',
