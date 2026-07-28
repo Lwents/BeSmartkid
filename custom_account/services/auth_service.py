@@ -3,7 +3,6 @@ from urllib.parse import quote
 from django.conf import settings
 from django.utils import timezone
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 
 from custom_account.models import UserModel
@@ -26,12 +25,6 @@ def reset_password_request(email: str) -> None:
     token = token_generator.make_token(user)
     frontend_base = (settings.FRONTEND_URL or "").rstrip("/") or "http://localhost:5173"
     reset_link = f"{frontend_base}/auth/reset-password?email={quote(user.email)}&token={quote(token)}"
-
-    # Log link for testing (remove in production)
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"🔗 Password reset link for {email}: {reset_link}")
-    print(f"\n{'='*80}\n🔗 PASSWORD RESET LINK:\n{reset_link}\n{'='*80}\n")
 
     try:
         email_service = get_email_service()
@@ -88,12 +81,24 @@ def reset_password_confirm(email: str, token: str, new_password: str) -> bool:
         return False
 
     # Verify token properly
-    if not default_token_generator.check_token(user, token):
+    if not token_generator.check_token(user, token):
         return False
 
     user.set_password(new_password)
     user.save()
     return True
+
+
+def is_password_reset_token_valid(email: str, token: str) -> bool:
+    if not email or not token:
+        return False
+
+    try:
+        user = UserModel.objects.get(email=email)
+    except UserModel.DoesNotExist:
+        return False
+
+    return token_generator.check_token(user, token)
 
 
 def authenticate_user(username_or_email: str, password: str) -> UserModel:

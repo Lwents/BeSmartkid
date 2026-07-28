@@ -122,9 +122,25 @@ class ParentalConsentSerializer(serializers.ModelSerializer):
 
 """Serializer for user registration requests (input only)."""
 class RegisterSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=150)
+    username = serializers.RegexField(
+        regex=r"^[A-Za-z0-9._-]+$",
+        min_length=3,
+        max_length=150,
+        error_messages={
+            "invalid": (
+                "Tên tài khoản chỉ gồm chữ không dấu, số, dấu chấm, "
+                "gạch dưới hoặc gạch ngang."
+            ),
+            "min_length": "Tên tài khoản phải có ít nhất 3 ký tự.",
+        },
+    )
     email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, min_length=6)
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        trim_whitespace=False,
+        error_messages={"min_length": "Mật khẩu phải có ít nhất 8 ký tự."},
+    )
     role = serializers.ChoiceField(choices=["student", "instructor", "admin"], default="student")
     phone = serializers.CharField(max_length=15, required=False)
 
@@ -212,7 +228,12 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 class ResetPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
     reset_token = serializers.CharField()
-    new_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        trim_whitespace=False,
+        error_messages={"min_length": "Mật khẩu phải có ít nhất 8 ký tự."},
+    )
 
     def to_domain(self) -> ResetPasswordDomain:
         return ResetPasswordDomain.from_dict(self.validated_data)

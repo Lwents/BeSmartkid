@@ -103,11 +103,9 @@ def start_attempt(exercise_id: str, student_user) -> ExerciseAttemptDomain:
     # max_attempts is per-student, NOT global. Each student has their own limit.
     attempt_count = attempt_qs.count()
     if not exercise.can_attempt(attempt_count):
-        latest_id = str(existing_attempt.id) if existing_attempt else None
-        msg = "Bạn đã hoàn thành bài kiểm tra này và đã đạt giới hạn số lần làm bài cho phép."
-        if latest_id:
-            msg += f" Attempt ID: {latest_id}"
-        raise ValidationError(msg)
+        raise ValidationError(
+            "Em đã dùng hết số lượt làm bài. Hãy xem lại kết quả và bảng xếp hạng nhé!"
+        )
 
     # Create new attempt
     attempt_domain = exercise.create_attempt(student_id=student_id)

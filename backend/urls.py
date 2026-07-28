@@ -19,6 +19,7 @@ from django.http import Http404, HttpResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from custom_account.api.views.password_reset_page_view import password_reset_page
 import mimetypes
 import os
 import re
@@ -76,6 +77,7 @@ def media_stream(request, path):
     return resp
 
 urlpatterns = [
+    path('auth/reset-password', password_reset_page, name='password-reset-page'),
     path('admin/', admin.site.urls),
     path('api/account/', include("custom_account.urls")),
     path('api/content/', include('content.urls')),

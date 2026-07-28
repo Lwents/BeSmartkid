@@ -195,6 +195,8 @@ def test_max_attempts_enforced(admin_auth_client, auth_client):
     # A finished first attempt consumes the student's only allowed attempt.
     r2 = student_client.post(f"{BASE}exercises/{exercise_id}/start/")
     assert r2.status_code == 400 or r2.status_code == 403
+    assert "hết số lượt làm bài" in r2.data["detail"]
+    assert "Attempt ID" not in r2.data["detail"]
 
 
 @pytest.mark.django_db

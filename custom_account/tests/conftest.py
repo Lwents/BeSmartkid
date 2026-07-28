@@ -26,8 +26,13 @@ def dummy_email(monkeypatch):
     sent = []
     
     class DummyService:
-        def send(self, to, subject, body, from_email=None):
-            sent.append({"to": to, "subject": subject, "body": body})
+        def send(self, to, subject, body, html_body=None, from_email=None):
+            sent.append({
+                "to": to,
+                "subject": subject,
+                "body": body,
+                "html_body": html_body,
+            })
 
     dummy_service = DummyService()
     monkeypatch.setattr(
@@ -90,4 +95,3 @@ def admin_auth_client(db, django_user_model):
 @pytest.fixture
 def profile_factory(db):
     return ProfileFactory
-

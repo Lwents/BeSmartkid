@@ -14,7 +14,6 @@ from activities.services import (
     submit_answer,
     finalize_attempt,
     get_attempt_summary,
-    exercise_stats,
 )
 from activities.services import NotFoundError, ValidationError, PermissionDenied
 from content.models import Enrollment, Course
@@ -31,6 +30,55 @@ def _get_available_exam(student, exam_id):
     if exercise.lesson_id or not student_can_access_exercise(student, exercise):
         return None
     return exercise
+
+
+def _student_question_payload(question):
+    """Expose the question shape needed by students without leaking correct answers."""
+    meta = question.meta if isinstance(question.meta, dict) else {}
+    raw_type = str(
+        meta.get('type') or meta.get('question_type') or meta.get('format') or 'mcq'
+    ).strip().lower()
+    question_type = {
+        'single': 'mcq',
+        'multiple_choice': 'mcq',
+        'short': 'short_answer',
+        'text': 'short_answer',
+        'match': 'matching',
+    }.get(raw_type, raw_type)
+    if question_type not in {'mcq', 'short_answer', 'matching'}:
+        question_type = 'mcq' if question.choices.exists() else 'short_answer'
+
+    payload = {
+        'id': str(question.id),
+        'type': question_type,
+        'text': question.prompt,
+        'score': float(meta.get('points') or 1),
+        'choices': [],
+    }
+    if question_type == 'mcq':
+        payload['choices'] = [
+            {'id': str(choice.id), 'text': choice.text}
+            for choice in question.choices.all()
+        ]
+    elif question_type == 'matching':
+        pairs = meta.get('pairs') if isinstance(meta.get('pairs'), list) else []
+        if not pairs:
+            choice_rows = list(question.choices.all())
+            pairs = [
+                {'left': choice_rows[index].text, 'right': choice_rows[index + 1].text}
+                for index in range(0, len(choice_rows) - 1, 2)
+            ]
+        payload['leftItems'] = [
+            {'id': f'L{index + 1}', 'text': str(pair.get('left') or '')}
+            for index, pair in enumerate(pairs)
+            if isinstance(pair, dict)
+        ]
+        payload['rightItems'] = [
+            {'id': f'R{index + 1}', 'text': str(pair.get('right') or '')}
+            for index, pair in enumerate(pairs)
+            if isinstance(pair, dict)
+        ]
+    return payload
 
 
 class StudentExamsListView(APIView):
@@ -223,24 +271,7 @@ class StudentExamDetailView(APIView):
         questions_data = []
         
         for question in exercise.questions.all():
-            question_data = {
-                'id': str(question.id),
-                'type': 'single',  # Default, should be determined from question
-                'text': question.prompt,
-                'score': 1,  # Default
-                'choices': [],
-            }
-            
-            # Get choices
-            choices = question.choices.all()
-            for choice in choices:
-                question_data['choices'].append({
-                    'id': str(choice.id),
-                    'text': choice.text,
-                })
-
-            # Không gửi đáp án đúng trước khi học sinh nộp bài.
-            questions_data.append(question_data)
+            questions_data.append(_student_question_payload(question))
         
         exercise_data['questions'] = questions_data
         
@@ -270,8 +301,12 @@ class StudentExamStartView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         except ValidationError as e:
+            detail = str(e)
+            payload = {'detail': detail}
+            if 'hết số lượt làm bài' in detail.lower():
+                payload['code'] = 'attempt_limit_reached'
             return Response(
-                {'detail': str(e)},
+                payload,
                 status=status.HTTP_400_BAD_REQUEST
             )
         except PermissionDenied as e:
@@ -292,22 +327,7 @@ class StudentExamStartView(APIView):
         
         # Get questions for attempt
         for question in exercise.questions.all():
-            question_data = {
-                'id': str(question.id),
-                'type': 'single',  # Default
-                'text': question.prompt,
-                'score': 1,
-                'choices': [],
-            }
-            
-            choices = question.choices.all()
-            for choice in choices:
-                question_data['choices'].append({
-                    'id': str(choice.id),
-                    'text': choice.text,
-                })
-            
-            attempt_data['questions'].append(question_data)
+            attempt_data['questions'].append(_student_question_payload(question))
         
         return Response(attempt_data, status=status.HTTP_201_CREATED)
 
@@ -439,126 +459,62 @@ class StudentExamRankingView(APIView):
     def get(self, request, pk):
         """Get exam ranking"""
         student = request.user
-        if _get_available_exam(student, pk) is None:
+        exercise = _get_available_exam(student, pk)
+        if exercise is None:
             return Response({'detail': 'Exam not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-        try:
-            stats = exercise_stats(str(pk))
-        except NotFoundError:
-            return Response(
-                {'detail': 'Exam not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Get all students who have completed the exam (top 100)
-        top_attempts = ExerciseAttempt.objects.filter(
+
+        attempts = list(ExerciseAttempt.objects.filter(
             exercise_id=pk,
             finished_at__isnull=False
-        ).select_related('student').order_by('-score', 'finished_at')[:100]
-        
-        # Get exercise to get total questions
-        from activities.models import Exercise, ExerciseAnswer
-        try:
-            exercise = Exercise.objects.get(id=pk)
-            total_questions = exercise.questions.count()
-        except Exercise.DoesNotExist:
-            total_questions = 0
-        
+        ).select_related('student').prefetch_related('answers'))
+
+        def duration_seconds(attempt):
+            if not attempt.finished_at or not attempt.started_at:
+                return 0
+            return max(0, int((attempt.finished_at - attempt.started_at).total_seconds()))
+
+        attempts.sort(key=lambda attempt: (
+            -float(attempt.score or 0),
+            duration_seconds(attempt),
+            attempt.finished_at,
+        ))
+        best_by_student = {}
+        for attempt in attempts:
+            key = attempt.student_id or str(attempt.id)
+            if key not in best_by_student:
+                best_by_student[key] = attempt
+
+        total_questions = exercise.questions.count()
+        ranked_attempts = list(best_by_student.values())
         top = []
-        for idx, attempt in enumerate(top_attempts):
-            # Calculate correct answers
-            correct_count = ExerciseAnswer.objects.filter(
-                attempt=attempt,
-                correct=True
-            ).count() if hasattr(attempt, 'answers') else 0
-            
-            # Calculate time taken
-            time_taken = '00:00'
-            if attempt.finished_at and attempt.started_at:
-                from datetime import timedelta
-                duration = attempt.finished_at - attempt.started_at
-                total_seconds = int(duration.total_seconds())
-                minutes = total_seconds // 60
-                seconds = total_seconds % 60
-                time_taken = f"{minutes:02d}:{seconds:02d}"
-            
-            # Get avatar from student profile
-            avatar = None
-            if attempt.student:
-                try:
-                    profile = getattr(attempt.student, 'profile', None)
-                    if profile:
-                        avatar = getattr(profile, 'avatar_url', None) or getattr(attempt.student, 'avatar', None)
-                except:
-                    pass
-            
-            top.append({
-                'id': idx + 1,
-                'name': attempt.student.get_full_name() or attempt.student.username if attempt.student else 'Unknown',
-                'avatar': avatar,
-                'gender': getattr(attempt.student, 'gender', None) if attempt.student else None,
-                'score': float(attempt.score) if attempt.score else 0,
-                'correct': correct_count,
-                'total': total_questions,
-                'time': time_taken,
-            })
-        
-        # Get student's rank
-        student_attempts = ExerciseAttempt.objects.filter(
-            exercise_id=pk,
-            student=student,
-            finished_at__isnull=False
-        ).order_by('-score')
-        
         me = None
-        if student_attempts.exists():
-            best_attempt = student_attempts.first()
-            # Calculate rank (simplified)
-            rank = ExerciseAttempt.objects.filter(
-                exercise_id=pk,
-                finished_at__isnull=False,
-                score__gt=best_attempt.score if best_attempt.score else 0
-            ).count() + 1
-            
-            # Calculate correct answers for student
-            correct_count = ExerciseAnswer.objects.filter(
-                attempt=best_attempt,
-                correct=True
-            ).count() if hasattr(best_attempt, 'answers') else 0
-            
-            # Calculate time taken
-            time_taken = '00:00'
-            if best_attempt.finished_at and best_attempt.started_at:
-                from datetime import timedelta
-                duration = best_attempt.finished_at - best_attempt.started_at
-                total_seconds = int(duration.total_seconds())
-                minutes = total_seconds // 60
-                seconds = total_seconds % 60
-                time_taken = f"{minutes:02d}:{seconds:02d}"
-            
-            # Get avatar
-            avatar = None
-            if best_attempt.student:
-                try:
-                    profile = getattr(best_attempt.student, 'profile', None)
-                    if profile:
-                        avatar = getattr(profile, 'avatar_url', None) or getattr(best_attempt.student, 'avatar', None)
-                except:
-                    pass
-            
-            me = {
+        for index, attempt in enumerate(ranked_attempts):
+            rank = index + 1
+            seconds = duration_seconds(attempt)
+            correct_count = sum(1 for answer in attempt.answers.all() if answer.correct)
+            attempt_student = attempt.student
+            name = 'Học viên'
+            if attempt_student:
+                name = attempt_student.get_full_name() or attempt_student.username
+            row = {
+                'id': rank,
                 'rank': rank,
-                'score': float(best_attempt.score) if best_attempt.score else 0,
+                'name': name,
+                'score': float(attempt.score or 0),
                 'correct': correct_count,
                 'total': total_questions,
-                'time': time_taken,
-                'avatar': avatar,
-                'gender': getattr(best_attempt.student, 'gender', None) if best_attempt.student else None,
+                'time': f"{seconds // 60:02d}:{seconds % 60:02d}",
+                'isMe': attempt.student_id == student.id,
             }
-        
+            if rank <= 100:
+                top.append(row)
+            if row['isMe']:
+                me = dict(row)
+
         return Response({
             'top': top,
             'me': me,
+            'participants': len(ranked_attempts),
         }, status=status.HTTP_200_OK)
 
 

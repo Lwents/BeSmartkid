@@ -18,7 +18,7 @@ def test_register_success(api_client):
     payload = {
         "username": "alice",
         "email": "alice@example.com",
-        "password": "Password123!",
+        "password": "Abcd1234",
         "role": "student",
         "phone": "1234567890",
     }
@@ -29,6 +29,42 @@ def test_register_success(api_client):
     assert response.data["phone"] == "1234567890"
     # user exists in DB
     assert UserModel.objects.filter(username="alice").exists()
+
+
+@pytest.mark.django_db
+def test_register_rejects_password_shorter_than_eight_characters(api_client):
+    payload = {
+        "username": "short_password_student",
+        "email": "short-password@example.com",
+        "password": "1234567",
+        "role": "student",
+        "phone": "0987654321",
+    }
+
+    response = api_client.post(f"{BASE}register/", payload, format="json")
+
+    assert response.status_code == 400
+    assert "password" in response.data.get("errors", {})
+    assert "ít nhất 8 ký tự" in str(response.data["errors"]["password"])
+    assert not UserModel.objects.filter(username="short_password_student").exists()
+
+
+@pytest.mark.django_db
+def test_register_rejects_username_with_whitespace(api_client):
+    payload = {
+        "username": "lwent kkk",
+        "email": "username-space@example.com",
+        "password": "Abcd1234",
+        "role": "student",
+        "phone": "0976543210",
+    }
+
+    response = api_client.post(f"{BASE}register/", payload, format="json")
+
+    assert response.status_code == 400
+    assert "username" in response.data.get("errors", {})
+    assert "chỉ gồm chữ không dấu" in str(response.data["errors"]["username"])
+    assert not UserModel.objects.filter(username="lwent kkk").exists()
 
 
 @pytest.mark.django_db
@@ -111,7 +147,7 @@ def test_logout_invalid_refresh_token(auth_client_with_token, user_factory):
 def test_reset_password_request_sends_email(api_client, user_factory, dummy_email):
     user = user_factory(email="parent@example.com")
     response = api_client.post(f"{BASE}password/reset/", {"email": user.email}, format="json")
-    assert response.status_code == 204
+    assert response.status_code == 200
     assert len(dummy_email) == 1
     assert dummy_email[0]["to"] == user.email
 
