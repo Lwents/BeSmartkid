@@ -1,4 +1,5 @@
 from typing import Optional, List, Dict, Any, Tuple
+from datetime import timedelta
 from django.apps import apps
 from django.db import transaction
 from django.db.models import Avg, F
@@ -97,7 +98,32 @@ def start_attempt(exercise_id: str, student_user) -> ExerciseAttemptDomain:
 
     # If student has an unfinished attempt, return it to continue
     if existing_attempt and existing_attempt.finished_at is None:
-        return ExerciseAttemptDomain.from_model(existing_attempt, exercise)
+        existing_domain = ExerciseAttemptDomain.from_model(existing_attempt, exercise)
+        time_limit = exercise.settings.get('duration_seconds')
+        if time_limit:
+            metadata = dict(existing_attempt.metadata or {})
+            metadata.setdefault('time_limit_seconds', int(time_limit))
+            metadata.setdefault(
+                'deadline_at',
+                (existing_attempt.started_at + timedelta(
+                    seconds=int(time_limit)
+                )).isoformat(),
+            )
+            if metadata != existing_attempt.metadata:
+                existing_attempt.metadata = metadata
+                existing_attempt.save(update_fields=['metadata'])
+                existing_domain.metadata = metadata
+
+        # Do not let reopening an expired attempt reset its timer. Close it using
+        # the answers already saved, then apply the normal per-student attempt rule.
+        remaining = existing_domain.time_remaining_seconds()
+        if remaining is None or remaining > 0:
+            return existing_domain
+        existing_domain.finalize()
+        existing_attempt.score = existing_domain.score
+        existing_attempt.finished_at = existing_domain.finished_at
+        existing_attempt.metadata = existing_domain.metadata
+        existing_attempt.save(update_fields=['score', 'finished_at', 'metadata'])
 
     # Check if THIS STUDENT has exceeded their personal attempt limit
     # max_attempts is per-student, NOT global. Each student has their own limit.

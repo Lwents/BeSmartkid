@@ -30,6 +30,9 @@ class TeacherFeedbackView(APIView):
     """
     permission_classes = [IsAuthenticated, IsTeacher]
 
+    def get(self, request):
+        return TeacherFeedbackListView().get(request)
+
     def post(self, request):
         try:
             teacher = request.user
@@ -43,6 +46,19 @@ class TeacherFeedbackView(APIView):
 
             if not message:
                 return Response({'error': 'message is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                rating = float(rating)
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'Điểm đánh giá phải là một số từ 0 đến 10.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if rating < 0 or rating > 10:
+                return Response(
+                    {'error': 'Điểm đánh giá phải nằm trong khoảng từ 0 đến 10.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             try:
                 student = UserModel.objects.get(id=student_id, role='student')
@@ -81,7 +97,7 @@ class TeacherFeedbackView(APIView):
                     student=student,
                     course=course_obj,
                     message=message,
-                    rating=float(rating)
+                    rating=rating
                 )
 
                 # Create notification for student
@@ -201,4 +217,3 @@ class TeacherFeedbackListView(APIView):
         except Exception as e:
             logger.error(f"Error in TeacherFeedbackListView: {e}", exc_info=True)
             return Response({'error': f'Internal Server Error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-

@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from django.db.models import Count, Q, Avg, Max
 from rest_framework import status
 from rest_framework.views import APIView
@@ -18,6 +19,35 @@ from activities.services import (
 from activities.services import NotFoundError, ValidationError, PermissionDenied
 from content.models import Enrollment, Course
 from activities.services.exercise_access_service import student_can_access_exercise
+
+
+def _attempt_overview(student, exercise):
+    attempts = list(
+        ExerciseAttempt.objects.filter(student=student, exercise=exercise)
+        .order_by('-started_at')
+    )
+    active = next((item for item in attempts if item.finished_at is None), None)
+    completed = [item for item in attempts if item.finished_at is not None]
+    latest_completed = completed[0] if completed else None
+    best_score = max(
+        (float(item.score or 0) for item in completed), default=None
+    )
+    settings_obj = getattr(exercise, 'settings', None)
+    max_attempts = getattr(settings_obj, 'max_attempts', None) if settings_obj else None
+    remaining = None if max_attempts is None else max(0, int(max_attempts) - len(attempts))
+    return {
+        'attemptsUsed': len(attempts),
+        'maxAttempts': max_attempts,
+        'attemptsRemaining': remaining,
+        'hasActiveAttempt': active is not None,
+        'activeAttemptId': str(active.id) if active else None,
+        'lastAttemptId': str(latest_completed.id) if latest_completed else None,
+        'lastScore': float(latest_completed.score or 0) if latest_completed else None,
+        'bestScore': best_score,
+        'lastCompletedAt': (
+            latest_completed.finished_at.isoformat() if latest_completed else None
+        ),
+    }
 
 
 def _get_available_exam(student, exam_id):
@@ -212,6 +242,9 @@ class StudentExamsListView(APIView):
                 'questionsCount': questions_count,
                 'status': 'published',
                 'updatedAt': None,
+                'endAt': settings_obj.end_at.isoformat()
+                if settings_obj and settings_obj.end_at else None,
+                **_attempt_overview(student, exercise),
             })
         
         return Response(exams_data, status=status.HTTP_200_OK)
@@ -266,6 +299,9 @@ class StudentExamDetailView(APIView):
             'shuffleQuestions': shuffle_questions,
             'shuffleChoices': shuffle_choices,
             'questions': [],
+            'endAt': settings_obj.end_at.isoformat()
+            if settings_obj and settings_obj.end_at else None,
+            **_attempt_overview(request.user, exercise),
         }
 
         questions_data = []
@@ -316,11 +352,15 @@ class StudentExamStartView(APIView):
             )
         
         # Convert to response format
+        time_limit = getattr(exercise.settings, 'time_limit_seconds', None)
+        deadline = None
+        if time_limit and attempt_domain.started_at:
+            deadline = attempt_domain.started_at + timedelta(seconds=int(time_limit))
         attempt_data = {
             'id': str(attempt_domain.id),
             'examId': str(attempt_domain.exercise_id),
             'startedAt': attempt_domain.started_at.isoformat() if hasattr(attempt_domain, 'started_at') else None,
-            'deadlineAt': None,  # Calculate from duration
+            'deadlineAt': deadline.isoformat() if deadline else None,
             'questions': [],
             'answers': {},
         }
@@ -469,29 +509,44 @@ class StudentExamRankingView(APIView):
         ).select_related('student').prefetch_related('answers'))
 
         def duration_seconds(attempt):
+            stored = (attempt.metadata or {}).get('time_taken')
+            try:
+                if stored is not None:
+                    return max(0, int(stored))
+            except (TypeError, ValueError):
+                pass
             if not attempt.finished_at or not attempt.started_at:
                 return 0
             return max(0, int((attempt.finished_at - attempt.started_at).total_seconds()))
 
-        attempts.sort(key=lambda attempt: (
-            -float(attempt.score or 0),
-            duration_seconds(attempt),
-            attempt.finished_at,
+        scored_attempts = []
+        for attempt in attempts:
+            correct_count = sum(1 for answer in attempt.answers.all() if answer.correct)
+            scored_attempts.append((attempt, correct_count, duration_seconds(attempt)))
+        scored_attempts.sort(key=lambda row: (
+            -float(row[0].score or 0),
+            -row[1],
+            row[2],
+            row[0].finished_at,
         ))
         best_by_student = {}
-        for attempt in attempts:
+        for attempt, correct_count, seconds in scored_attempts:
             key = attempt.student_id or str(attempt.id)
             if key not in best_by_student:
-                best_by_student[key] = attempt
+                best_by_student[key] = (attempt, correct_count, seconds)
 
         total_questions = exercise.questions.count()
         ranked_attempts = list(best_by_student.values())
         top = []
         me = None
-        for index, attempt in enumerate(ranked_attempts):
-            rank = index + 1
-            seconds = duration_seconds(attempt)
-            correct_count = sum(1 for answer in attempt.answers.all() if answer.correct)
+        previous_key = None
+        current_rank = 0
+        for index, (attempt, correct_count, seconds) in enumerate(ranked_attempts):
+            visible_key = (float(attempt.score or 0), correct_count, seconds)
+            if visible_key != previous_key:
+                current_rank = index + 1
+                previous_key = visible_key
+            rank = current_rank
             attempt_student = attempt.student
             name = 'Học viên'
             if attempt_student:
@@ -533,15 +588,27 @@ class StudentCertificatesView(APIView):
         attempts = ExerciseAttempt.objects.filter(
             student=student,
             finished_at__isnull=False,
-            score__gte=50  # Passing score threshold
-        ).select_related('exercise').order_by('-finished_at')
+        ).select_related('exercise__settings').order_by(
+            'exercise_id', '-score', 'finished_at'
+        )
         
         certificates = []
+        certified_exercises = set()
         for attempt in attempts:
+            if attempt.exercise_id in certified_exercises:
+                continue
+            try:
+                pass_score = float(attempt.exercise.settings.pass_score)
+            except Exception:
+                pass_score = 50.0
+            score = float(attempt.score or 0)
+            if score < pass_score:
+                continue
+            certified_exercises.add(attempt.exercise_id)
             certificates.append({
                 'id': str(attempt.id),
                 'title': f'Chứng chỉ {attempt.exercise.title}',
-                'score': float(attempt.score) if attempt.score else 0,
+                'score': score,
                 'total': 100,  # Default
                 'issuedAt': attempt.finished_at.isoformat() if attempt.finished_at else None,
                 'thumbnail': None,

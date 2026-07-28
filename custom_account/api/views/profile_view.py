@@ -75,6 +75,11 @@ class UserProfileView(RoleBasedOutputMixin, APIView):
         """
         Handle PATCH requests to update the user's profile.
         """
+        if "role" in request.data or "is_staff" in request.data or "is_superuser" in request.data:
+            raise ValidationError({
+                'role': 'Bạn không thể tự thay đổi quyền của tài khoản.',
+            })
+
         # Use a dedicated serializer *only* for validation
         serializer = ProfileUpdateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

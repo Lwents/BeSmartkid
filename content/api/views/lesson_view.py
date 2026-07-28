@@ -35,6 +35,11 @@ from content.services.exploration_service import (
     ExplorationService, ExplorationStateService, ExplorationTransitionService
 )
 from content.utils.storage_utils import local_path_from_storage
+from content.api.access import (
+    can_manage_course,
+    require_course_manager,
+    require_course_viewer,
+)
 
 # Create service instances
 lesson_service = LessonService()
@@ -121,9 +126,20 @@ class LessonListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         module_id = self.kwargs.get("module_id")
-        return models.Lesson.objects.filter(module_id=module_id)
+        module = get_object_or_404(
+            models.Module.objects.select_related("course"), id=module_id
+        )
+        require_course_viewer(self.request.user, module.course)
+        queryset = models.Lesson.objects.filter(module_id=module_id)
+        if not can_manage_course(self.request.user, module.course):
+            queryset = queryset.filter(published=True)
+        return queryset
 
     def create(self, request, module_id=None, *args, **kwargs):
+        module = get_object_or_404(
+            models.Module.objects.select_related("course"), id=module_id
+        )
+        require_course_manager(request.user, module.course)
         # Merge module_id from URL into data if not provided
         data = request.data.copy()
         if module_id and 'module' not in data:
@@ -220,32 +236,20 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     parser_classes = [MultiPartParser, FormParser, JSONParser]  # Cho phép upload file
 
-    def check_object_permissions(self, request, obj):
-        """
-        Override to check if user is owner of the course (via module) or admin.
-        """
-        if request.method in permissions.SAFE_METHODS:
-            # Allow read for all authenticated users
-            if not request.user or not request.user.is_authenticated:
+    def get_object(self):
+        obj = get_object_or_404(
+            models.Lesson.objects.select_related("module__course"),
+            id=self.kwargs.get("pk"),
+        )
+        course = obj.module.course
+        if self.request.method in permissions.SAFE_METHODS:
+            require_course_viewer(self.request.user, course)
+            if not obj.published and not can_manage_course(self.request.user, course):
                 from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("Authentication required")
-            return
-        
-        # For write/delete, check if user is owner of course or admin
-        if request.user.is_staff or request.user.is_superuser:
-            return
-        
-        # Check if user is owner of the course (lesson -> module -> course -> owner)
-        if hasattr(obj, 'module') and obj.module and hasattr(obj.module, 'course'):
-            course = obj.module.course
-            if hasattr(course, 'owner') and course.owner == request.user:
-                return
-            elif hasattr(course, 'owner_id') and course.owner_id == request.user.id:
-                return
-        
-        # Default deny
-        from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("You do not have permission to perform this action")
+                raise PermissionDenied("Bài học này chưa được công khai.")
+        else:
+            require_course_manager(self.request.user, course)
+        return obj
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", True)
@@ -291,6 +295,8 @@ class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
             instance.requires_exercise_completion = updates['requires_exercise_completion']
         if 'video_transcript' in updates:
             instance.video_transcript = updates['video_transcript']
+        if 'published' in updates:
+            instance.published = updates['published']
         instance.save()
         
         # Also update via service for domain logic (convert dict to UpdateLessonDomain)
@@ -333,7 +339,15 @@ class LessonPublishView(APIView):
         published_flag = request.data.get("published", True)
         try:
             # Get lesson to find latest version
-            lesson = models.Lesson.objects.get(id=lesson_id)
+            lesson = get_object_or_404(
+                models.Lesson.objects.select_related("module__course"), id=lesson_id
+            )
+            require_course_manager(request.user, lesson.module.course)
+            if not bool(published_flag):
+                lesson.published = False
+                lesson.save(update_fields=['published'])
+                from content.domains.lesson_domain import LessonDomain
+                return Response(LessonSerializer.from_domain(LessonDomain.from_model(lesson)))
             # Get latest version or use 1
             latest_version = lesson.versions.order_by('-version').first()
             version = latest_version.version if latest_version else 1
@@ -359,6 +373,10 @@ class LessonReorderView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
 
     def post(self, request, module_id: str):
+        module = get_object_or_404(
+            models.Module.objects.select_related("course"), id=module_id
+        )
+        require_course_manager(request.user, module.course)
         order_map = request.data.get("order_map")
         if not isinstance(order_map, dict):
             return Response({"detail": "order_map must be object"}, status=status.HTTP_400_BAD_REQUEST)
@@ -378,7 +396,8 @@ class LessonTranscribeView(APIView):
 
     def post(self, request, lesson_id: str):
         try:
-            lesson = models.Lesson.objects.get(id=lesson_id)
+            lesson = models.Lesson.objects.select_related("module__course").get(id=lesson_id)
+            require_course_manager(request.user, lesson.module.course)
             
             # Kiểm tra có video không
             video_url = lesson.video_url

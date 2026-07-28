@@ -42,6 +42,14 @@ def student_can_access_lesson(student, lesson):
     )
 
 
+def student_can_access_question(student, question):
+    return bool(question and student_can_access_lesson(student, question.lesson))
+
+
+def student_can_access_reply(student, reply):
+    return bool(reply and student_can_access_question(student, reply.question))
+
+
 def avatar_for(user, request):
     """Get avatar URL for user, with fallback to profile avatar_url and default avatar"""
     if not user:
@@ -300,7 +308,14 @@ class StudentLessonQuestionReplyView(APIView):
     permission_classes = [IsAuthenticated, IsStudent]
 
     def post(self, request, pk):
-        question = get_object_or_404(LessonQuestion, id=pk)
+        question = get_object_or_404(
+            LessonQuestion.objects.select_related("lesson__module__course"), id=pk
+        )
+        if not student_can_access_question(request.user, question):
+            return Response(
+                {"detail": "Bạn chưa được phép tham gia thảo luận của bài học này."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         content = (request.data.get("content") or "").strip()
         # Kiểm tra xem có phải là tương tác với AI không (không gửi thông báo cho giáo viên)
         is_ai_interaction = request.data.get("is_ai_interaction", False)
@@ -333,10 +348,10 @@ class StudentLessonQuestionReplyView(APIView):
                         "course_id": str(course.id) if course else None,
                         "course_title": course_title,
                         "lesson_title": lesson_title,
-                    "student_id": str(request.user.id),
-                    "student": request.user.username,
-                },
-            )
+                        "student_id": str(request.user.id),
+                        "student": request.user.username,
+                    },
+                )
 
         question.refresh_from_db()
         return Response({"item": serialize_question(question, user=request.user, request=request)}, status=status.HTTP_201_CREATED)
@@ -377,7 +392,17 @@ class StudentLessonQuestionReactionView(APIView):
 
     def post(self, request, reply_id):
         emoji = (request.data.get("emoji") or "like")[:16]
-        reply = get_object_or_404(LessonQuestionReply, id=reply_id)
+        reply = get_object_or_404(
+            LessonQuestionReply.objects.select_related(
+                "question__lesson__module__course"
+            ),
+            id=reply_id,
+        )
+        if not student_can_access_reply(request.user, reply):
+            return Response(
+                {"detail": "Bạn chưa được phép tương tác với phản hồi này."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         reaction, created = reply.reactions.get_or_create(user=request.user, defaults={"emoji": emoji})
         if not created:
             # toggle off
@@ -405,7 +430,15 @@ class StudentLessonQuestionQuestionReactionView(APIView):
         # Accept both path converters: question_id or pk (DRF may pass pk)
         question_id = question_id or pk
         emoji = (request.data.get("emoji") or "like")[:16]
-        question = get_object_or_404(LessonQuestion, id=question_id)
+        question = get_object_or_404(
+            LessonQuestion.objects.select_related("lesson__module__course"),
+            id=question_id,
+        )
+        if not student_can_access_question(request.user, question):
+            return Response(
+                {"detail": "Bạn chưa được phép tương tác với câu hỏi này."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         from activities.models import LessonQuestionReaction
         
         try:
@@ -463,9 +496,27 @@ class StudentLessonQuestionReportView(APIView):
         question = None
         reply = None
         if question_id:
-            question = get_object_or_404(LessonQuestion, id=question_id)
+            question = get_object_or_404(
+                LessonQuestion.objects.select_related("lesson__module__course"),
+                id=question_id,
+            )
+            if not student_can_access_question(request.user, question):
+                return Response(
+                    {"detail": "Bạn chưa được phép báo cáo câu hỏi này."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         if reply_id:
-            reply = get_object_or_404(LessonQuestionReply, id=reply_id)
+            reply = get_object_or_404(
+                LessonQuestionReply.objects.select_related(
+                    "question__lesson__module__course"
+                ),
+                id=reply_id,
+            )
+            if not student_can_access_reply(request.user, reply):
+                return Response(
+                    {"detail": "Bạn chưa được phép báo cáo phản hồi này."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         report = LessonQuestionReport.objects.create(
             reporter=request.user,

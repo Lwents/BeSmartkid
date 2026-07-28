@@ -143,8 +143,14 @@ class ExerciseDomain:
         started = now_utc()
         metadata = {}
         # store per-exercise time_limit for attempt
-        if 'time_limit_seconds' in self.settings and self.settings['time_limit_seconds']:
-            metadata['time_limit_seconds'] = int(self.settings['time_limit_seconds'])
+        time_limit = (
+            self.settings.get('time_limit_seconds')
+            or self.settings.get('duration_seconds')
+        )
+        if time_limit:
+            time_limit = int(time_limit)
+            metadata['time_limit_seconds'] = time_limit
+            metadata['deadline_at'] = (started + timedelta(seconds=time_limit)).isoformat()
         return ExerciseAttemptDomain(
             id=str(uuid.uuid4()),
             exercise_id=self.id,

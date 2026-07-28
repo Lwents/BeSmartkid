@@ -33,6 +33,7 @@ from content.services.content_block_service import ContentBlockService
 from content.services.exploration_service import (
     ExplorationService, ExplorationStateService, ExplorationTransitionService
 )
+from content.api.access import require_course_manager, require_course_viewer
 
 # Create service instances
 module_service = ModuleService()
@@ -47,9 +48,13 @@ class ModuleListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         course_id = self.kwargs.get("course_id")
+        course = get_object_or_404(models.Course, id=course_id)
+        require_course_viewer(self.request.user, course)
         return models.Module.objects.filter(course_id=course_id)
 
     def create(self, request, course_id=None, *args, **kwargs):
+        course = get_object_or_404(models.Course, id=course_id)
+        require_course_manager(request.user, course)
         # Merge course_id from URL into data if not provided
         data = request.data.copy()
         if course_id and 'course' not in data:
@@ -69,7 +74,18 @@ class ModuleDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     queryset = models.Module.objects.all()
     serializer_class = ModuleSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrAdmin]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_object(self):
+        obj = get_object_or_404(
+            models.Module.objects.select_related("course"),
+            id=self.kwargs.get("pk"),
+        )
+        if self.request.method in permissions.SAFE_METHODS:
+            require_course_viewer(self.request.user, obj.course)
+        else:
+            require_course_manager(self.request.user, obj.course)
+        return obj
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", True)
@@ -96,6 +112,8 @@ class ModuleReorderView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
 
     def post(self, request, course_id: str):
+        course = get_object_or_404(models.Course, id=course_id)
+        require_course_manager(request.user, course)
         order_map = request.data.get("order_map")
         if not isinstance(order_map, dict):
             return Response({"detail": "order_map must be object"}, status=status.HTTP_400_BAD_REQUEST)

@@ -42,6 +42,8 @@ def test_teacher_dashboard_returns_real_activity_rates():
     )
     Enrollment.objects.create(course=published_course, student=first_student)
     Enrollment.objects.create(course=draft_course, student=second_student)
+    # Học sinh chưa bắt đầu bài vẫn nằm trong mẫu số tỷ lệ hoàn thành.
+    Enrollment.objects.create(course=published_course, student=second_student)
 
     published_module = Module.objects.create(
         course=published_course, title="Chương đã mở", position=1

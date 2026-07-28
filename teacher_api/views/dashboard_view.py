@@ -1,4 +1,4 @@
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -91,11 +91,20 @@ class TeacherDashboardView(APIView):
             | Q(exercise_attempts__exercise__in=exams_query)
         ).distinct().count()
 
-        lesson_progress_query = LessonProgress.objects.filter(
-            lesson__module__course__owner=teacher
-        )
-        started_lessons = lesson_progress_query.count()
-        completed_lessons = lesson_progress_query.filter(completed=True).count()
+        # Mỗi bài đã xuất bản của mỗi học sinh đã ghi danh là một đơn vị tiến độ.
+        # Học sinh chưa bắt đầu vẫn phải nằm trong mẫu số, nếu không tỷ lệ bị cao giả.
+        expected_lessons = Enrollment.objects.filter(
+            course__owner=teacher,
+            course__modules__lessons__published=True,
+        ).values(
+            'student_id', 'course__modules__lessons__id'
+        ).distinct().count()
+        completed_lessons = LessonProgress.objects.filter(
+            lesson__module__course__owner=teacher,
+            lesson__published=True,
+            completed=True,
+            student__course_enrollments__course_id=F('lesson__module__course_id'),
+        ).distinct().count()
 
         return Response({
             'stats': {
@@ -113,7 +122,7 @@ class TeacherDashboardView(APIView):
                 'lessonPublished': _percentage(published_lessons, total_lessons),
                 'examPublished': _percentage(published_exams, total_exams),
                 'attemptSubmitted': _percentage(total_attempts, all_attempts),
-                'completion': _percentage(completed_lessons, started_lessons),
+                'completion': _percentage(completed_lessons, expected_lessons),
             },
             'myCourses': my_courses
         }, status=status.HTTP_200_OK)

@@ -97,14 +97,20 @@ class StudentChangePasswordView(APIView):
         
         if not old_password or not new_password:
             return Response(
-                {'detail': 'oldPassword and newPassword are required'},
+                {'detail': 'Vui lòng nhập mật khẩu hiện tại và mật khẩu mới.'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(new_password) < 8:
+            return Response(
+                {'detail': 'Mật khẩu mới phải có ít nhất 8 ký tự.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         
         # Check old password
         if not user.check_password(old_password):
             return Response(
-                {'detail': 'Incorrect old password'},
+                {'detail': 'Mật khẩu hiện tại không chính xác.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         

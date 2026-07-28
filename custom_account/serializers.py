@@ -151,7 +151,12 @@ class RegisterSerializer(serializers.Serializer):
 
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
-    new_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        trim_whitespace=False,
+        error_messages={"min_length": "Mật khẩu phải có ít nhất 8 ký tự."},
+    )
 
     def to_domain(self, user_id: int) -> ChangePasswordDomain:
         return ChangePasswordDomain(
@@ -176,7 +181,12 @@ class SetPasswordSerializer(serializers.Serializer):
 
 class PasswordChangeOTPVerifySerializer(serializers.Serializer):
     otp = serializers.CharField(max_length=6)
-    new_password = serializers.CharField(write_only=True, min_length=6)
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        trim_whitespace=False,
+        error_messages={"min_length": "Mật khẩu phải có ít nhất 8 ký tự."},
+    )
     
 
 class ProfileUpdateRequestSerializer(serializers.Serializer):

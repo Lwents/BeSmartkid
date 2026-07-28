@@ -4,6 +4,7 @@ from teacher_api.views.feedback_view import TeacherFeedbackView
 from teacher_api.views.notifications_view import (
     TeacherNotificationsView,
     TeacherNotificationReadView,
+    TeacherNotificationReadAllView,
 )
 from teacher_api.views.lesson_question_view import TeacherLessonQuestionView
 
@@ -14,11 +15,11 @@ urlpatterns = [
     path('students/', TeacherStudentsView.as_view(), name='students'),
     path('students/feedback/', TeacherFeedbackView.as_view(), name='feedback'),
     path('notifications/', TeacherNotificationsView.as_view(), name='notifications'),
+    path('notifications/read-all/', TeacherNotificationReadAllView.as_view(), name='notifications-read-all'),
     path('notifications/<uuid:id>/read/', TeacherNotificationReadView.as_view(), name='notification-read'),
     path('lesson-questions/', TeacherLessonQuestionView.as_view(), name='lesson-questions'),
     path('lesson-questions/<uuid:pk>/reply/', TeacherLessonQuestionView.as_view(), name='lesson-question-reply'),
 ]
-
 
 
 

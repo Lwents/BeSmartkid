@@ -8,7 +8,7 @@ from admin_api.views import (
     AdminLessonVideoDeleteView,
     AdminUserReportView,
     AdminLearningReportView, AdminContentReportView,
-    AdminSystemConfigView, AdminSystemBackupView,
+    AdminSystemConfigView, AdminSystemBackupView, AdminSystemRestoreView,
     AdminSystemHealthView,
     AdminActivityLogView,
     AdminSecurityPolicyView,
@@ -18,6 +18,7 @@ from admin_api.views import (
 from admin_api.views.notifications_view import (
     AdminNotificationsView,
     AdminNotificationReadView,
+    AdminNotificationReadAllView,
 )
 
 app_name = 'admin_api'
@@ -49,6 +50,7 @@ urlpatterns = [
     # System
     path('system/config/', AdminSystemConfigView.as_view(), name='system-config'),
     path('system/backups/', AdminSystemBackupView.as_view(), name='system-backups'),
+    path('system/restore/', AdminSystemRestoreView.as_view(), name='system-restore'),
     path('system/health/', AdminSystemHealthView.as_view(), name='system-health'),
 
     # Activity Logs
@@ -61,5 +63,6 @@ urlpatterns = [
     
     # Notifications
     path('notifications/', AdminNotificationsView.as_view(), name='notifications'),
+    path('notifications/read-all/', AdminNotificationReadAllView.as_view(), name='notifications-read-all'),
     path('notifications/<uuid:id>/read/', AdminNotificationReadView.as_view(), name='notification-read'),
 ]

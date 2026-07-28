@@ -37,6 +37,11 @@ from content.services.exploration_service import (
     ExplorationService, ExplorationStateService, ExplorationTransitionService
 )
 from content.domains.course_domain import CourseDomain
+from content.api.access import (
+    require_content_author,
+    require_course_manager,
+    require_course_viewer,
+)
 
 # Create service instances
 course_service = CourseService()
@@ -97,6 +102,7 @@ class CourseListCreateView(generics.ListCreateAPIView):
         return qs
 
     def create(self, request, *args, **kwargs):
+        require_content_author(request.user)
         try:
             # Handle FormData - create a mutable copy
             if hasattr(request.data, 'copy'):
@@ -220,35 +226,12 @@ class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]  # Cho phép upload file
     
     def get_object(self):
-        """Override to check if student can access unpublished courses"""
         obj = super().get_object()
-        # Check if user is student trying to access unpublished course
-        if self.request.user.is_authenticated:
-            user_role = getattr(self.request.user, 'role', None)
-            if user_role == 'student' and not obj.published:
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("This course is not available yet.")
-        elif not obj.published:
-            # Unauthenticated users cannot see unpublished courses
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("This course is not available yet.")
+        if self.request.method in permissions.SAFE_METHODS:
+            require_course_viewer(self.request.user, obj)
+        else:
+            require_course_manager(self.request.user, obj)
         return obj
-    
-    def check_object_permissions(self, request, obj):
-        """
-        Override to allow read for all authenticated users, but restrict write/delete to owner or admin.
-        """
-        if request.method in permissions.SAFE_METHODS:
-            # Allow read for all authenticated users (but unpublished courses are blocked in get_object)
-            if not request.user or not request.user.is_authenticated:
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("Authentication required")
-            return
-        # For write/delete, check IsOwnerOrAdmin
-        permission = IsOwnerOrAdmin()
-        if not permission.has_object_permission(request, self, obj):
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("You do not have permission to perform this action")
 
     def destroy(self, request, *args, **kwargs):
         """Override destroy to ensure proper permission check and error handling"""
@@ -337,6 +320,8 @@ class CoursePublishView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
 
     def post(self, request, course_id: str):
+        course_model = get_object_or_404(Course, id=course_id)
+        require_course_manager(request.user, course_model)
         # Handle both "require_all_lessons_published" and "published" in request
         # Frontend may send {"published": true}, backend also supports {"require_all_lessons_published": false}
         require_all = request.data.get("require_all_lessons_published", False)
@@ -344,9 +329,8 @@ class CoursePublishView(APIView):
         published_flag = request.data.get("published", True)
         if published_flag is False or published_flag == "false":
             # Unpublish instead
-            course = Course.objects.get(id=course_id)
-            course.published = False
-            course.save()
+            course_model.published = False
+            course_model.save(update_fields=["published"])
             updated = course_service.get_course(course_id)
             return Response(CourseDetailReadSerializer.from_domain(updated))
         
@@ -380,6 +364,11 @@ class CourseEnrollView(APIView):
     def post(self, request, course_id: str):
         # Using course_service.enroll_user (if implemented)
         try:
+            if getattr(request.user, "role", None) != "student":
+                return Response(
+                    {"detail": "Chỉ tài khoản học sinh được tham gia khóa học."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             course = course_service.get_course(course_id)
             if not course:
                 return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)

@@ -60,6 +60,7 @@ class CourseSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True)
     subject = serializers.PrimaryKeyRelatedField(queryset=models.Subject.objects.all(), allow_null=True, required=False)
     subject_slug = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
+    subject_title = serializers.CharField(source="subject.title", read_only=True)
     owner = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), allow_null=True, required=False)
     title = serializers.CharField(max_length=255)
     description = serializers.CharField(allow_blank=True, required=False)
@@ -83,7 +84,7 @@ class CourseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Course
-        fields = ["id", "subject", "subject_slug", "title", "description", "introduction", "grade", "owner", "slug", "published", "published_at", "created_on", "updated_on", "createdAt", "updatedAt", "status", "enrollments", "lessonsCount", "video_url", "video_file", "thumbnail"]
+        fields = ["id", "subject", "subject_slug", "subject_title", "title", "description", "introduction", "grade", "owner", "slug", "published", "published_at", "created_on", "updated_on", "createdAt", "updatedAt", "status", "enrollments", "lessonsCount", "video_url", "video_file", "thumbnail"]
         read_only_fields = ["id", "published_at", "created_on", "updated_on", "createdAt", "updatedAt", "status", "enrollments", "lessonsCount"]
 
     def get_status(self, obj):

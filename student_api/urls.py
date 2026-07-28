@@ -19,6 +19,7 @@ from student_api.views import (
     StudentParentViewView,
     StudentLessonQuestionView,
     StudentLessonQuestionReplyView,
+    StudentLessonQuestionReactionView,
     StudentLessonQuestionQuestionReactionView,
     StudentLessonQuestionReportView,
 )
@@ -55,6 +56,7 @@ urlpatterns = [
     path('lesson-questions/', StudentLessonQuestionView.as_view(), name='lesson-question'),
     path('lesson-questions/<uuid:pk>/reply/', StudentLessonQuestionReplyView.as_view(), name='lesson-question-reply'),
     path('lesson-questions/<uuid:pk>/react/', StudentLessonQuestionQuestionReactionView.as_view(), name='lesson-question-question-reaction'),
+    path('lesson-question-replies/<uuid:reply_id>/react/', StudentLessonQuestionReactionView.as_view(), name='lesson-question-reply-reaction'),
     path('lesson-questions/<uuid:pk>/', StudentLessonQuestionView.as_view(), name='lesson-question-detail'),
     path('lesson-question-report/', StudentLessonQuestionReportView.as_view(), name='lesson-question-report'),
     
