@@ -1,6 +1,8 @@
 from datetime import timedelta
+from ipaddress import ip_address
 from typing import Optional
 
+from django.db.models import Q
 from django.utils import timezone
 
 from custom_account.models import AuthAttempt, SecurityPolicy, UserModel
@@ -15,10 +17,27 @@ def normalize_identifier(identifier: Optional[str]) -> str:
 
 
 def get_client_ip(request) -> Optional[str]:
+    def normalized(value):
+        try:
+            return ip_address(str(value or '').strip())
+        except ValueError:
+            return None
+
+    remote = normalized(request.META.get('REMOTE_ADDR'))
+    if remote and not (remote.is_private or remote.is_loopback):
+        return str(remote)
+
+    # Forwarded headers are only trusted when the direct peer is a local/private proxy.
+    candidates = [request.META.get('HTTP_X_REAL_IP', '')]
     forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if forwarded:
-        return forwarded.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
+    parts = [part.strip() for part in forwarded.split(',') if part.strip()]
+    if parts:
+        candidates.append(parts[-1])
+    for candidate in candidates:
+        parsed = normalized(candidate)
+        if parsed:
+            return str(parsed)
+    return str(remote) if remote else None
 
 
 def is_rate_limited(identifier: str, ip: Optional[str], policy: SecurityPolicy, now=None) -> bool:
@@ -27,7 +46,9 @@ def is_rate_limited(identifier: str, ip: Optional[str], policy: SecurityPolicy, 
     now = now or timezone.now()
     window_start = now - timedelta(minutes=policy.rate_limit_window_min)
     qs = AuthAttempt.objects.filter(success=False, created_at__gte=window_start)
-    if identifier:
+    if identifier and ip:
+        qs = qs.filter(Q(username_or_email=identifier) | Q(ip_address=ip))
+    elif identifier:
         qs = qs.filter(username_or_email=identifier)
     elif ip:
         qs = qs.filter(ip_address=ip)

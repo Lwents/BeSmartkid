@@ -1,4 +1,6 @@
 # account/tests/test_views_auth.py
+import re
+
 import pytest
 from django.urls import reverse
 from rest_framework.authtoken.models import Token
@@ -7,7 +9,7 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator
 
 
 from infrastructure import email_service 
-from custom_account.models import UserModel
+from custom_account.models import AuthAttempt, SecurityPolicy, UserModel
 
 
 
@@ -90,6 +92,177 @@ def test_login_invalid_password(api_client, user_factory):
 
 
 @pytest.mark.django_db
+def test_login_is_case_insensitive_and_preserves_password_whitespace(api_client, user_factory):
+    user_factory(
+        username="CaseLogin",
+        email="case-login@example.com",
+        set_password=" SpacePass1 ",
+    )
+
+    response = api_client.post(f"{BASE}login/", {
+        "username_or_email": "  CASELOGIN  ",
+        "password": " SpacePass1 ",
+    }, format="json")
+
+    assert response.status_code == 200
+    assert response.data["user"]["username"] == "CaseLogin"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("invalid_field", ["identifier", "password", "otp"])
+def test_login_rejects_non_string_input_without_server_error(
+    api_client, user_factory, invalid_field,
+):
+    user_factory(
+        username="typed-login",
+        email="typed-login@example.com",
+        set_password="Password123",
+    )
+    payload = {
+        "username_or_email": "typed-login",
+        "password": "Password123",
+    }
+    if invalid_field == "identifier":
+        payload["username_or_email"] = 123
+    elif invalid_field == "password":
+        payload["password"] = 12345678
+    else:
+        payload["otp"] = 123456
+
+    response = api_client.post(f"{BASE}login/", payload, format="json")
+
+    assert response.status_code == 400
+    assert "định dạng" in response.data["detail"]
+
+
+@pytest.mark.django_db
+def test_login_rate_limit_blocks_credential_stuffing_from_same_ip(api_client):
+    policy = SecurityPolicy.get_current()
+    policy.rate_limit_login_failures = 2
+    policy.rate_limit_window_min = 10
+    policy.lockout_attempts = 10
+    policy.save()
+    source_ip = "client-spoof, 198.51.100.24"
+
+    first = api_client.post(f"{BASE}login/", {
+        "username_or_email": "unknown-one",
+        "password": "WrongPass1",
+    }, format="json", HTTP_X_FORWARDED_FOR=source_ip)
+    second = api_client.post(f"{BASE}login/", {
+        "username_or_email": "unknown-two",
+        "password": "WrongPass1",
+    }, format="json", HTTP_X_FORWARDED_FOR=source_ip)
+    blocked = api_client.post(f"{BASE}login/", {
+        "username_or_email": "unknown-three",
+        "password": "WrongPass1",
+    }, format="json", HTTP_X_FORWARDED_FOR=source_ip)
+
+    assert first.status_code == 401
+    assert second.status_code == 401
+    assert blocked.status_code == 429
+
+
+@pytest.mark.django_db
+def test_login_ignores_invalid_forwarded_ip_instead_of_returning_server_error(api_client):
+    response = api_client.post(f"{BASE}login/", {
+        "username_or_email": "unknown-ip-test",
+        "password": "WrongPass1",
+    }, format="json", HTTP_X_FORWARDED_FOR="not-an-ip")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_login_does_not_trust_forwarded_ip_from_public_direct_peer(api_client):
+    response = api_client.post(f"{BASE}login/", {
+        "username_or_email": "public-peer-test",
+        "password": "WrongPass1",
+    }, format="json", REMOTE_ADDR="8.8.8.8", HTTP_X_FORWARDED_FOR="1.1.1.1")
+
+    assert response.status_code == 401
+    assert AuthAttempt.objects.get(username_or_email="public-peer-test").ip_address == "8.8.8.8"
+
+
+@pytest.mark.django_db
+def test_login_reports_lockout_on_the_attempt_that_triggers_it(api_client, user_factory):
+    user = user_factory(
+        username="lockout-login",
+        email="lockout-login@example.com",
+        set_password="RightPass1",
+    )
+    policy = SecurityPolicy.get_current()
+    policy.rate_limit_login_failures = 100
+    policy.lockout_attempts = 2
+    policy.lockout_minutes = 30
+    policy.save()
+
+    first = api_client.post(f"{BASE}login/", {
+        "username_or_email": user.username,
+        "password": "WrongPass1",
+    }, format="json")
+    locked = api_client.post(f"{BASE}login/", {
+        "username_or_email": user.username,
+        "password": "WrongPass2",
+    }, format="json")
+
+    assert first.status_code == 401
+    assert locked.status_code == 403
+    assert "tạm thời bị khóa" in locked.data["detail"]
+    user.refresh_from_db()
+    assert user.lockout_until is not None
+
+
+@pytest.mark.django_db
+def test_teacher_two_factor_login_sends_and_accepts_one_time_code(
+    api_client, user_factory, monkeypatch,
+):
+    sent = []
+
+    class DummyEmailService:
+        def send(self, to, subject, body, html_body=None, from_email=None):
+            sent.append({"to": to, "subject": subject, "body": body})
+
+    monkeypatch.setattr(
+        "custom_account.services.login_otp_service.get_email_service",
+        lambda: DummyEmailService(),
+    )
+    teacher = user_factory(
+        username="otp-teacher",
+        email="otp-teacher@example.com",
+        role="instructor",
+        set_password="TeacherPass1",
+    )
+    policy = SecurityPolicy.get_current()
+    policy.twofa_enforce_teacher = True
+    policy.rate_limit_login_failures = 100
+    policy.save()
+
+    requested = api_client.post(f"{BASE}login/", {
+        "username_or_email": teacher.username,
+        "password": "TeacherPass1",
+    }, format="json")
+    assert requested.status_code == 202
+    assert requested.data["requires_otp"] is True
+    assert len(sent) == 1
+    match = re.search(r"Mã OTP đăng nhập của bạn là: (\d{6})", sent[0]["body"])
+    assert match is not None
+    completed = api_client.post(f"{BASE}login/", {
+        "username_or_email": teacher.username,
+        "password": "TeacherPass1",
+        "otp": match.group(1),
+    }, format="json")
+    replayed = api_client.post(f"{BASE}login/", {
+        "username_or_email": teacher.username,
+        "password": "TeacherPass1",
+        "otp": match.group(1),
+    }, format="json")
+
+    assert completed.status_code == 200
+    assert completed.data["user"]["role"] == "instructor"
+    assert replayed.status_code == 400
+
+
+@pytest.mark.django_db
 def test_logout_success(auth_client_with_token, user_factory):
     user = user_factory(username='testuser', email='test@example.com')
     client, user, access_token, refresh_token = auth_client_with_token(user)
@@ -150,6 +323,20 @@ def test_reset_password_request_sends_email(api_client, user_factory, dummy_emai
     assert response.status_code == 200
     assert len(dummy_email) == 1
     assert dummy_email[0]["to"] == user.email
+    assert "Nếu email đã đăng ký" in response.data["detail"]
+
+
+@pytest.mark.django_db
+def test_reset_password_request_does_not_reveal_unknown_email(api_client, dummy_email):
+    response = api_client.post(
+        f"{BASE}password/reset/",
+        {"email": "unknown-reset@example.com"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert "Nếu email đã đăng ký" in response.data["detail"]
+    assert dummy_email == []
 
 
 @pytest.mark.django_db
@@ -164,6 +351,7 @@ def test_reset_password_confirm(api_client, user_factory):
     }
     response = api_client.post(f"{BASE}password/reset/confirm/", payload, format="json")
     assert response.status_code == 200
+    assert response.data["detail"] == "Đặt lại mật khẩu thành công."
 
     # refresh and check password updated
     user.refresh_from_db()
@@ -180,3 +368,4 @@ def test_reset_password_confirm_invalid_token(api_client, user_factory):
     }
     response = api_client.post(f"{BASE}password/reset/confirm/", payload, format="json")
     assert response.status_code == 400
+    assert "không hợp lệ hoặc đã hết hạn" in response.data["detail"]

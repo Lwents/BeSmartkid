@@ -86,6 +86,19 @@ class CustomLoginView(APIView):
         password = request.data.get("password")
         otp = request.data.get("otp")
 
+        if not isinstance(identifier, str) or not isinstance(password, str):
+            return Response(
+                {"detail": "Thông tin đăng nhập không đúng định dạng."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if otp is not None and not isinstance(otp, str):
+            return Response(
+                {"detail": "Mã OTP không đúng định dạng."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        identifier = identifier.strip()
+        otp = otp.strip() if otp is not None else None
         if not identifier or not password:
             return Response(
                 {"detail": "Thiếu thông tin đăng nhập."},
@@ -158,7 +171,17 @@ class CustomLoginView(APIView):
                 user_agent=user_agent,
                 error="invalid_credentials",
             )
-            login_security_service.register_failure(user, policy, now=now)
+            lockout_triggered = login_security_service.register_failure(user, policy, now=now)
+            if lockout_triggered:
+                detail = (
+                    "Tài khoản đã bị khóa. Vui lòng liên hệ hỗ trợ."
+                    if user and not user.is_active
+                    else "Tài khoản tạm thời bị khóa. Vui lòng thử lại sau."
+                )
+                return Response(
+                    {"detail": detail},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             return Response(
                 {"detail": "Sai tài khoản hoặc mật khẩu."},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -251,15 +274,23 @@ class ResetPasswordRequestView(APIView):
 
         try:
             sent = auth_service.reset_password_request(email=email)
-        except ValueError as e:
-            # Trả về lỗi cụ thể khi email không tồn tại
-            return Response({"detail": "Email không tồn tại trong hệ thống."}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as exc:
-            return Response({"detail": f"Lỗi khi gửi email: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except ValueError:
+            # Không tiết lộ email nào đã đăng ký để tránh dò tài khoản.
+            sent = True
+        except Exception:
+            return Response(
+                {"detail": "Chưa thể gửi email lúc này. Vui lòng thử lại sau."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         if sent:
-            return Response({"detail": "Đã gửi link đặt lại mật khẩu đến email của bạn."}, status=status.HTTP_200_OK)
-        return Response({"detail": "Không thể gửi email đặt lại mật khẩu."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                "detail": "Nếu email đã đăng ký, hướng dẫn đặt lại mật khẩu sẽ được gửi đến bạn."
+            }, status=status.HTTP_200_OK)
+        return Response(
+            {"detail": "Chưa thể gửi email lúc này. Vui lòng thử lại sau."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 class ResetPasswordConfirmView(APIView):
@@ -276,8 +307,14 @@ class ResetPasswordConfirmView(APIView):
             new_password=data["new_password"]
         )
         if not ok:
-            return Response({"detail": "Invalid token or request."}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"detail": "Password updated successfully."}, status=status.HTTP_200_OK)
+            return Response(
+                {"detail": "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {"detail": "Đặt lại mật khẩu thành công."},
+            status=status.HTTP_200_OK,
+        )
 
 # ---------- Custom reset password confirm ----------
 class AdvancedPasswordResetConfirmView(PasswordResetConfirmView):

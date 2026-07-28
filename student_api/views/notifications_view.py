@@ -48,7 +48,11 @@ class StudentNotificationsView(APIView):
             serializer = NotificationSerializer(notifications, many=True)
             logger.info(f"Returning {len(serializer.data)} notifications for user {user.id}")
             return Response({
-                'notifications': serializer.data
+                'notifications': serializer.data,
+                'unread_count': Notification.objects.filter(
+                    user=user,
+                    is_read=False,
+                ).count(),
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -96,4 +100,3 @@ class StudentNotificationReadAllView(APIView):
         except Exception as e:
             logger.error(f"Error in StudentNotificationReadAllView: {e}", exc_info=True)
             return Response({'error': f'Internal Server Error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-

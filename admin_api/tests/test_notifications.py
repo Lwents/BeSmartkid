@@ -97,6 +97,69 @@ def test_admin_can_broadcast_notification_only_to_requested_role():
 
 
 @pytest.mark.django_db
+def test_admin_broadcast_all_reaches_active_students_and_teachers_only():
+    admin = UserModel.objects.create_user(
+        username='broadcast-admin', email='broadcast-admin@example.com',
+        password='password123', role='admin', is_staff=True,
+    )
+    student = UserModel.objects.create_user(
+        username='broadcast-student', email='broadcast-student@example.com',
+        password='password123', role='student',
+    )
+    teacher = UserModel.objects.create_user(
+        username='broadcast-teacher', email='broadcast-teacher@example.com',
+        password='password123', role='instructor',
+    )
+    inactive_student = UserModel.objects.create_user(
+        username='broadcast-inactive', email='broadcast-inactive@example.com',
+        password='password123', role='student', is_active=False,
+    )
+    other_admin = UserModel.objects.create_user(
+        username='broadcast-other-admin', email='broadcast-other-admin@example.com',
+        password='password123', role='admin', is_staff=True,
+    )
+    client = APIClient()
+    client.force_authenticate(admin)
+
+    response = client.post('/api/admin/notifications/', {
+        'title': 'Thông báo chung',
+        'message': 'Nội dung dành cho giáo viên và học sinh.',
+        'audience': 'all',
+    }, format='json')
+
+    assert response.status_code == 201
+    assert response.data['created_count'] == 2
+    recipients = set(Notification.objects.filter(
+        category='admin_broadcast', title='Thông báo chung',
+    ).values_list('user_id', flat=True))
+    assert recipients == {student.id, teacher.id}
+    assert inactive_student.id not in recipients
+    assert other_admin.id not in recipients
+    assert admin.id not in recipients
+
+
+@pytest.mark.django_db
+def test_admin_broadcast_rejects_empty_and_invalid_input():
+    admin = UserModel.objects.create_user(
+        username='invalid-broadcast-admin', email='invalid-broadcast@example.com',
+        password='password123', role='admin', is_staff=True,
+    )
+    client = APIClient()
+    client.force_authenticate(admin)
+
+    response = client.post('/api/admin/notifications/', {
+        'title': '   ',
+        'message': '',
+        'audience': 'admin',
+        'type': 'unknown',
+    }, format='json')
+
+    assert response.status_code == 400
+    assert set(response.data['errors']) == {'title', 'message', 'audience', 'type'}
+    assert not Notification.objects.filter(category='admin_broadcast').exists()
+
+
+@pytest.mark.django_db
 def test_admin_notification_list_is_paginated_without_losing_badge_fields():
     admin = UserModel.objects.create_user(
         username='notification-pages', email='notification-pages@example.com',
