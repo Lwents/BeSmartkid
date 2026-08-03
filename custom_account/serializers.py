@@ -142,7 +142,23 @@ class RegisterSerializer(serializers.Serializer):
         error_messages={"min_length": "Mật khẩu phải có ít nhất 8 ký tự."},
     )
     role = serializers.ChoiceField(choices=["student", "instructor", "admin"], default="student")
-    phone = serializers.CharField(max_length=15, required=False)
+    phone = serializers.RegexField(
+        regex=r"^(?:0|\+84)[35789][0-9]{8}$",
+        required=True,
+        max_length=12,
+        trim_whitespace=True,
+        error_messages={
+            "required": "Vui lòng nhập số điện thoại.",
+            "blank": "Vui lòng nhập số điện thoại.",
+            "invalid": "Số điện thoại không phải của Việt Nam.",
+        },
+    )
+
+    def validate_phone(self, value):
+        """Lưu thống nhất về dạng nội địa để kiểm tra trùng chính xác."""
+        if value.startswith("+84"):
+            return f"0{value[3:]}"
+        return value
 
     def to_domain(self):
         """Convert validated data into a UserDomain object"""

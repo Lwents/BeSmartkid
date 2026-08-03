@@ -22,15 +22,50 @@ def test_register_success(api_client):
         "email": "alice@example.com",
         "password": "Abcd1234",
         "role": "student",
-        "phone": "1234567890",
+        "phone": "0912345678",
     }
     response = api_client.post(f"{BASE}register/", payload, format="json")
     assert response.status_code == 201
     assert response.data["username"] == "alice"
     assert response.data["email"] == "alice@example.com"
-    assert response.data["phone"] == "1234567890"
+    assert response.data["phone"] == "0912345678"
     # user exists in DB
     assert UserModel.objects.filter(username="alice").exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("phone", ["0000000000", "0000260524", "1234567890", "09123456789"])
+def test_register_rejects_invalid_vietnamese_phone_numbers(api_client, phone):
+    payload = {
+        "username": "invalid_phone_student",
+        "email": "invalid-phone@example.com",
+        "password": "Abcd1234",
+        "role": "student",
+        "phone": phone,
+    }
+
+    response = api_client.post(f"{BASE}register/", payload, format="json")
+
+    assert response.status_code == 400
+    assert "phone" in response.data.get("errors", {})
+    assert not UserModel.objects.filter(username="invalid_phone_student").exists()
+
+
+@pytest.mark.django_db
+def test_register_normalizes_international_vietnamese_phone_number(api_client):
+    payload = {
+        "username": "international_phone_student",
+        "email": "international-phone@example.com",
+        "password": "Abcd1234",
+        "role": "student",
+        "phone": "+84912345678",
+    }
+
+    response = api_client.post(f"{BASE}register/", payload, format="json")
+
+    assert response.status_code == 201
+    assert response.data["phone"] == "0912345678"
+    assert UserModel.objects.get(username="international_phone_student").phone == "0912345678"
 
 
 @pytest.mark.django_db
