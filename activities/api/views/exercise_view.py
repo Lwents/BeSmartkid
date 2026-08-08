@@ -142,12 +142,23 @@ class ExerciseListCreateView(APIView):
                     item["avg_score"] = stats.get("avgScore", 0)  # Alias
                     item["passRate"] = stats.get("passRate", 0)
                     item["pass_rate"] = stats.get("passRate", 0)  # Alias
+                    # `published=False` can mean either a never-published draft or
+                    # an exam that was closed after students submitted. Preserve
+                    # attempt history and expose that distinction to clients.
+                    item["status"] = (
+                        "published" if item.get("published", False)
+                        else "closed" if item["submissions"] > 0
+                        else "draft"
+                    )
                 except Exception:
                     item["submissions"] = 0
                     item["avgScore"] = 0
                     item["avg_score"] = 0
                     item["passRate"] = 0
                     item["pass_rate"] = 0
+                    item["status"] = (
+                        "published" if item.get("published", False) else "draft"
+                    )
 
         # Attach current user's latest attempt info so FE biết đã làm hay chưa
         if request.user and request.user.is_authenticated and data:

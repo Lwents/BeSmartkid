@@ -377,6 +377,16 @@ def test_teacher_student_learning_flow_is_scoped_and_connected():
         HTTP_HOST="localhost",
     ).status_code == 403
 
+    teacher_report = teacher_client.get(
+        "/api/activities/exercises/?include_stats=true",
+        HTTP_HOST="localhost",
+    )
+    assert teacher_report.status_code == 200
+    closed_exam = next(item for item in teacher_report.data if item["id"] == exam_id)
+    assert closed_exam["published"] is False
+    assert closed_exam["submissions"] == 1
+    assert closed_exam["status"] == "closed"
+
     notifications_response = student_client.get(
         "/api/student/notifications/",
         HTTP_HOST="localhost",
