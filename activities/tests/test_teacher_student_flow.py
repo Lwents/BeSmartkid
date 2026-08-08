@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from activities.models import Notification
+from activities.models import ExerciseAttempt, Notification
 from content.models import Course, Enrollment, Lesson, Module, Subject
 from custom_account.models import UserModel
 
@@ -332,6 +332,13 @@ def test_teacher_student_learning_flow_is_scoped_and_connected():
     assert owner_attempts.status_code == 200
     assert len(owner_attempts.data) == 1
     assert owner_attempts.data[0]["student_id"] == str(student.id)
+    ExerciseAttempt.objects.filter(id=attempt_id).update(score=0)
+    zero_score_attempts = teacher_client.get(
+        f"/api/activities/exercises/{exam_id}/attempts/",
+        HTTP_HOST="localhost",
+    )
+    assert zero_score_attempts.status_code == 200
+    assert zero_score_attempts.data[0]["score"] == 0.0
     assert other_teacher_client.get(
         f"/api/activities/exercises/{exam_id}/attempts/",
         HTTP_HOST="localhost",

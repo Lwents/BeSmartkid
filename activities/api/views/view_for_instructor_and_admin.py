@@ -178,7 +178,7 @@ class ExerciseAttemptsListView(APIView):
                 'student_class_code': student_class,
                 'started_at': attempt.started_at.isoformat() if attempt.started_at else None,
                 'finished_at': attempt.finished_at.isoformat() if attempt.finished_at else None,
-                'score': float(attempt.score) if attempt.score else None,
+                'score': float(attempt.score) if attempt.score is not None else None,
                 'status': 'submitted' if attempt.finished_at else 'pending',
             })
         
