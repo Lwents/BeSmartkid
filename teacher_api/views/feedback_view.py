@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class TeacherFeedbackSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherFeedback
-        fields = ['id', 'teacher', 'student', 'course', 'message', 'rating', 'created_at', 'updated_at', 'is_read']
+        fields = ['id', 'teacher', 'student', 'course', 'message', 'created_at', 'updated_at', 'is_read']
         read_only_fields = ['id', 'teacher', 'created_at', 'updated_at']
 
 
@@ -39,26 +39,12 @@ class TeacherFeedbackView(APIView):
             student_id = request.data.get('studentId')
             course_id = request.data.get('courseId')
             message = request.data.get('message', '').strip()
-            rating = request.data.get('rating', 0.0)
 
             if not student_id:
                 return Response({'error': 'studentId is required'}, status=status.HTTP_400_BAD_REQUEST)
 
             if not message:
                 return Response({'error': 'message is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-            try:
-                rating = float(rating)
-            except (TypeError, ValueError):
-                return Response(
-                    {'error': 'Điểm đánh giá phải là một số từ 0 đến 10.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if rating < 0 or rating > 10:
-                return Response(
-                    {'error': 'Điểm đánh giá phải nằm trong khoảng từ 0 đến 10.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
             try:
                 student = UserModel.objects.get(id=student_id, role='student')
@@ -96,8 +82,7 @@ class TeacherFeedbackView(APIView):
                     teacher=teacher,
                     student=student,
                     course=course_obj,
-                    message=message,
-                    rating=rating
+                    message=message
                 )
 
                 # Create notification for student
@@ -143,8 +128,6 @@ class TeacherFeedbackView(APIView):
 Giáo viên {teacher_name} đã gửi phản hồi cho bạn:
 
 {message}
-
-Đánh giá: {rating}/10
 
 Bạn có thể xem chi tiết phản hồi trong hệ thống SmartKid.
 
@@ -207,7 +190,6 @@ class TeacherFeedbackListView(APIView):
                     'courseId': str(fb.course.id) if fb.course else None,
                     'courseTitle': fb.course.title if fb.course else None,
                     'message': fb.message,
-                    'rating': float(fb.rating),
                     'createdAt': fb.created_at.isoformat(),
                     'isRead': fb.is_read
                 })

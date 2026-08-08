@@ -15,7 +15,7 @@ def _user(username, role):
 
 
 @pytest.mark.django_db
-def test_teacher_feedback_rejects_rating_outside_zero_to_ten_and_supports_history():
+def test_teacher_feedback_uses_message_only_and_supports_history():
     teacher = _user("feedback-teacher", "instructor")
     student = _user("feedback-student", "student")
     course = Course.objects.create(
@@ -25,31 +25,32 @@ def test_teacher_feedback_rejects_rating_outside_zero_to_ten_and_supports_histor
     client = APIClient()
     client.force_authenticate(teacher)
 
-    invalid = client.post(
-        "/api/teacher/students/feedback/",
-        {
-            "studentId": student.id,
-            "courseId": str(course.id),
-            "message": "Em học tốt",
-            "rating": 11,
-        },
-        format="json",
-    )
-    assert invalid.status_code == 400
-
     created = client.post(
         "/api/teacher/students/feedback/",
         {
             "studentId": student.id,
             "courseId": str(course.id),
             "message": "Em học tốt",
-            "rating": 9,
         },
         format="json",
     )
     assert created.status_code == 201
+    assert "rating" not in created.data
+
+    legacy_created = client.post(
+        "/api/teacher/students/feedback/",
+        {
+            "studentId": student.id,
+            "courseId": str(course.id),
+            "message": "Tiếp tục phát huy",
+            "rating": 99,
+        },
+        format="json",
+    )
+    assert legacy_created.status_code == 201
+    assert "rating" not in legacy_created.data
 
     history = client.get("/api/teacher/students/feedback/")
     assert history.status_code == 200
-    assert len(history.data["items"]) == 1
-    assert history.data["items"][0]["rating"] == 9.0
+    assert len(history.data["items"]) == 2
+    assert all("rating" not in item for item in history.data["items"])
